@@ -1,7 +1,7 @@
 {
   "manifest_version": "0.2",
   "name": "mcp-sql-rust",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Token-efficient MCP server for MySQL, PostgreSQL, and SQLite",
   "author": {
     "name": "rzlco666"

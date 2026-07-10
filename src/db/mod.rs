@@ -1,3 +1,4 @@
+pub mod bind;
 pub mod exec;
 pub mod explain;
 pub mod pool;

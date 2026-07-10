@@ -15,19 +15,37 @@ mcp-name: io.github.rzlco666/mcp-sql-rust
 | [`server.json`](../server.json) | Registry manifest (`registryType: mcpb`) |
 | [`mcpb/manifest.json`](../mcpb/manifest.json) | MCPB bundle template (binary copied at pack time) |
 | Release `.mcpb` assets | Platform bundles built in CI |
+| [`.github/workflows/registry-publish.yml`](../.github/workflows/registry-publish.yml) | Auto-publish on GitHub Release |
 
 Crates.io is **not** used (`publish = false` in `Cargo.toml`).
 
-## Maintainer: publish a release
+## Automated publish (recommended)
 
-1. Tag `v0.2.0` (or newer) — CI builds raw binaries and `.mcpb` files.
-2. After the release is live, patch `server.json` with the Linux amd64 asset hash:
+On each GitHub Release (`release: published`), CI runs `registry-publish.yml`:
+
+1. Downloads `mcp-publisher`
+2. Syncs `server.json` version from the release tag
+3. `mcp-publisher login github-oidc`
+4. `mcp-publisher publish`
+
+Requires repository **Actions** permission for OIDC (`id-token: write` — already set in workflow).
+
+## Manual publish (first time or fallback)
+
+1. Install CLI:
 
 ```bash
-./scripts/update-server-json-sha.sh 0.2.0
+curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
+mv mcp-publisher ~/.local/bin/
 ```
 
-3. Install [mcp-publisher](https://github.com/modelcontextprotocol/registry) and publish:
+2. After release, patch hashes (Linux amd64 minimum):
+
+```bash
+./scripts/update-server-json-sha.sh 0.3.0
+```
+
+3. Authenticate and publish (interactive GitHub device flow):
 
 ```bash
 mcp-publisher login github
@@ -35,11 +53,13 @@ mcp-publisher validate server.json
 mcp-publisher publish
 ```
 
-Commit the updated `server.json` `fileSha256` before or after `publish` so the repo matches the registry entry.
+Must authenticate as the GitHub user that owns namespace `io.github.rzlco666/`.
 
-## Optional automation
+4. Verify:
 
-A future `registry-publish.yml` workflow can run `mcp-publisher publish` on release using a `MCP_REGISTRY_TOKEN` secret. Manual publish is fine for the first registry entry.
+```bash
+curl -s "https://registry.modelcontextprotocol.io/v0/servers?search=io.github.rzlco666/mcp-sql-rust"
+```
 
 ## Cursor install (direct binary)
 
