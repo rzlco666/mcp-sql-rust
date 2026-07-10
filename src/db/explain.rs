@@ -5,6 +5,7 @@ use serde::Serialize;
 use serde_json::Value;
 
 use crate::config::WriteMode;
+use crate::db::bind::{bind_mysql_params, bind_pg_params, bind_sqlite_params};
 use crate::db::{EngineKind, EnginePool};
 use crate::guard::{validate_and_prepare, GuardError};
 
@@ -45,14 +46,14 @@ pub struct PlanNode {
 pub async fn analyze_query(
     pool: &EnginePool,
     sql: &str,
+    params: &[Value],
     write_mode: WriteMode,
     timeout: Duration,
 ) -> Result<ExplainSummary, ExplainError> {
     let engine = pool.engine();
-    let prepared = validate_and_prepare(sql, &[], engine, write_mode, 100)?;
+    let prepared = validate_and_prepare(sql, params, engine, write_mode, 100)?;
 
     if !prepared.class.is_select_like() && prepared.class.label() != "SELECT" {
-        // Only analyze read queries
         let label = prepared.class.label();
         if label != "EXPLAIN" && !sql.trim().to_uppercase().starts_with("SELECT") {
             return Err(ExplainError::Other(
@@ -68,15 +69,21 @@ pub async fn analyze_query(
     };
 
     if engine == EngineKind::Sqlite {
-        let rows = tokio::time::timeout(timeout, fetch_explain_sqlite(pool, &explain_sql))
-            .await
-            .map_err(|_| ExplainError::Other("explain timeout".into()))??;
+        let rows = tokio::time::timeout(
+            timeout,
+            fetch_explain_sqlite(pool, &explain_sql, &prepared.params),
+        )
+        .await
+        .map_err(|_| ExplainError::Other("explain timeout".into()))??;
         return Ok(normalize_sqlite(&prepared.sql, rows));
     }
 
-    let json = tokio::time::timeout(timeout, fetch_explain_json(pool, &explain_sql, engine))
-        .await
-        .map_err(|_| ExplainError::Other("explain timeout".into()))??;
+    let json = tokio::time::timeout(
+        timeout,
+        fetch_explain_json(pool, &explain_sql, engine, &prepared.params),
+    )
+    .await
+    .map_err(|_| ExplainError::Other("explain timeout".into()))??;
 
     Ok(normalize_explain(engine, &prepared.sql, json))
 }
@@ -85,36 +92,45 @@ async fn fetch_explain_json(
     pool: &EnginePool,
     explain_sql: &str,
     engine: EngineKind,
+    params: &[Value],
 ) -> Result<Value, ExplainError> {
     match engine {
         EngineKind::Postgres => {
             let pool = pool.postgres().map_err(|e| ExplainError::Other(e.to_string()))?;
-            let row = sqlx::query(explain_sql).fetch_one(pool).await?;
+            let row = bind_pg_params(explain_sql, params)
+                .map_err(|e| ExplainError::Other(e.to_string()))?
+                .fetch_one(pool)
+                .await?;
             let val: Value = row.try_get(0)?;
             Ok(val)
         }
         EngineKind::Mysql => {
             let pool = pool.mysql().map_err(|e| ExplainError::Other(e.to_string()))?;
-            let row = sqlx::query(explain_sql).fetch_one(pool).await?;
+            let row = bind_mysql_params(explain_sql, params)
+                .map_err(|e| ExplainError::Other(e.to_string()))?
+                .fetch_one(pool)
+                .await?;
             let text: String = row.try_get(0)?;
             let val: Value = serde_json::from_str(&text)
                 .map_err(|e| ExplainError::Other(format!("invalid explain json: {e}")))?;
             Ok(val)
         }
-        EngineKind::Sqlite => {
-            Err(ExplainError::Other(
-                "sqlite explain uses row-based path".into(),
-            ))
-        }
+        EngineKind::Sqlite => Err(ExplainError::Other(
+            "sqlite explain uses row-based path".into(),
+        )),
     }
 }
 
 async fn fetch_explain_sqlite(
     pool: &EnginePool,
     explain_sql: &str,
+    params: &[Value],
 ) -> Result<Vec<String>, ExplainError> {
     let pool = pool.sqlite().map_err(|e| ExplainError::Other(e.to_string()))?;
-    let rows = sqlx::query(explain_sql).fetch_all(pool).await?;
+    let rows = bind_sqlite_params(explain_sql, params)
+        .map_err(|e| ExplainError::Other(e.to_string()))?
+        .fetch_all(pool)
+        .await?;
     rows.iter()
         .map(|row| row.try_get::<String, _>(3).map_err(ExplainError::from))
         .collect()
@@ -276,7 +292,6 @@ fn normalize_mysql(query: &str, json: Value) -> ExplainSummary {
         walk_mysql_block(query_block, &mut nodes, &mut warnings);
     }
 
-    // MySQL 8 often omits top-level cost_info; aggregate from table nodes when missing.
     if total_cost.is_none() {
         total_cost = nodes.iter().filter_map(|n| n.cost).reduce(|a, b| a + b);
     }

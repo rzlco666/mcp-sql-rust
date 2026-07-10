@@ -25,6 +25,8 @@ fn exec_opts(write_mode: WriteMode) -> ExecOptions {
         max_bytes: 64 * 1024,
         timeout: Duration::from_secs(10),
         limit_injected: false,
+        page_offset: 0,
+        page_size: None,
     }
 }
 
@@ -126,7 +128,8 @@ async fn sqlite_analyze_query_performance() {
 
     let summary = analyze_query(
         &pool,
-        "SELECT * FROM metrics WHERE id = 1",
+        "SELECT * FROM metrics WHERE id = ?",
+        &[json!(1)],
         WriteMode::ReadOnly,
         Duration::from_secs(5),
     )
@@ -134,4 +137,60 @@ async fn sqlite_analyze_query_performance() {
     .expect("explain");
     assert_eq!(summary.engine, "sqlite");
     assert!(!summary.nodes.is_empty());
+}
+
+#[tokio::test]
+async fn sqlite_execute_sql_pagination() {
+    let pool = sqlite_pool().await;
+    let ddl_opts = exec_opts(WriteMode::AllowDdl);
+    let write_opts = exec_opts(WriteMode::AllowWrites);
+    let mut read_opts = exec_opts(WriteMode::ReadOnly);
+
+    execute_query(
+        &pool,
+        "CREATE TABLE pages (id INTEGER PRIMARY KEY)",
+        &[],
+        &ddl_opts,
+    )
+    .await
+    .expect("create pages");
+
+    for id in 1..=150 {
+        execute_query(
+            &pool,
+            "INSERT INTO pages (id) VALUES (?)",
+            &[json!(id)],
+            &write_opts,
+        )
+        .await
+        .expect("insert row");
+    }
+
+    read_opts.page_size = Some(50);
+    read_opts.page_offset = 0;
+    let page1 = execute_query(
+        &pool,
+        "SELECT id FROM pages ORDER BY id",
+        &[],
+        &read_opts,
+    )
+    .await
+    .expect("page 1");
+    let data1 = page1.data.expect("page1 data");
+    assert_eq!(data1.rows.len(), 50);
+    assert_eq!(data1.meta.has_more, Some(true));
+    assert_eq!(data1.meta.total_fetched, Some(100));
+
+    read_opts.page_offset = 50;
+    let page2 = execute_query(
+        &pool,
+        "SELECT id FROM pages ORDER BY id",
+        &[],
+        &read_opts,
+    )
+    .await
+    .expect("page 2");
+    let data2 = page2.data.expect("page2 data");
+    assert_eq!(data2.rows.len(), 50);
+    assert_eq!(data2.meta.has_more, Some(false));
 }

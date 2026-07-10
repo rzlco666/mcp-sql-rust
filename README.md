@@ -49,6 +49,8 @@ sudo mv mcp-sql-rust /usr/local/bin/
 
 macOS: download the `mcp-sql-rust-*-apple-darwin` binary from Releases and place it on your `PATH`.
 
+Windows: download `mcp-sql-rust-x86_64-pc-windows-msvc.exe` from Releases.
+
 ### Build from source
 
 ```bash

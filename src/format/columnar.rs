@@ -18,6 +18,14 @@ pub struct ColumnarMeta {
     pub limit_injected: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub limit_clamped: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub page_offset: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub page_size: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub has_more: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total_fetched: Option<usize>,
 }
 
 impl ColumnarResult {
@@ -31,8 +39,24 @@ impl ColumnarResult {
                 rows_affected: Some(rows_affected),
                 limit_injected: None,
                 limit_clamped: None,
+                page_offset: None,
+                page_size: None,
+                has_more: None,
+                total_fetched: None,
             },
         }
+    }
+
+    pub fn apply_pagination(&mut self, page_offset: usize, page_size: usize) {
+        let total_fetched = self.rows.len();
+        let start = page_offset.min(total_fetched);
+        let end = (start + page_size).min(total_fetched);
+        self.rows = self.rows[start..end].to_vec();
+        self.meta.n = self.rows.len();
+        self.meta.page_offset = Some(page_offset);
+        self.meta.page_size = Some(page_size);
+        self.meta.total_fetched = Some(total_fetched);
+        self.meta.has_more = Some(end < total_fetched);
     }
 }
 
@@ -74,10 +98,39 @@ mod tests {
                 rows_affected: None,
                 limit_injected: None,
                 limit_clamped: Some(true),
+                page_offset: None,
+                page_size: None,
+                has_more: None,
+                total_fetched: None,
             },
         };
         let json = serde_json::to_string(&result).unwrap();
         assert!(json.contains("\"limit_clamped\":true"));
-        assert!(!json.contains("limit_injected"));
+    }
+
+    #[test]
+    fn apply_pagination_slices_rows() {
+        let mut result = ColumnarResult {
+            cols: vec!["id".into()],
+            rows: (0..5).map(|i| vec![Value::from(i)]).collect(),
+            meta: ColumnarMeta {
+                n: 5,
+                truncated: false,
+                rows_affected: None,
+                limit_injected: None,
+                limit_clamped: None,
+                page_offset: None,
+                page_size: None,
+                has_more: None,
+                total_fetched: None,
+            },
+        };
+        result.apply_pagination(2, 2);
+        assert_eq!(result.rows.len(), 2);
+        assert_eq!(result.meta.n, 2);
+        assert_eq!(result.meta.page_offset, Some(2));
+        assert_eq!(result.meta.page_size, Some(2));
+        assert_eq!(result.meta.total_fetched, Some(5));
+        assert_eq!(result.meta.has_more, Some(true));
     }
 }

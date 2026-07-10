@@ -33,6 +33,8 @@ fn exec_opts() -> ExecOptions {
         max_bytes: 64 * 1024,
         timeout: Duration::from_secs(10),
         limit_injected: false,
+        page_offset: 0,
+        page_size: None,
     }
 }
 

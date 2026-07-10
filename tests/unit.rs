@@ -143,6 +143,10 @@ mod format_tests {
                 rows_affected: None,
                 limit_injected: None,
                 limit_clamped: None,
+                page_offset: None,
+                page_size: None,
+                has_more: None,
+                total_fetched: None,
             },
         };
         let trimmed = truncate_to_bytes(result, 4096);

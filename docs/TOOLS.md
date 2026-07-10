@@ -23,6 +23,8 @@ Run SQL or concurrent batch.
 |-------|------|-------|
 | `sql` | string? | single statement |
 | `params` | array? | bound values for `?` placeholders (single-query mode) |
+| `page_offset` | number? | row offset after guard LIMIT (single-query only; default 0) |
+| `page_size` | number? | rows per page (single-query only; default `--max-rows`) |
 | `queries` | string[] or object[]? | batch (not both with `sql`) |
 | `source` | string? | connection name |
 
@@ -48,7 +50,19 @@ Use `?` for placeholders in the MCP API (PostgreSQL sources auto-rewrite to `$1`
 }
 ```
 
-Do not pass top-level `params` together with `queries[]` — put `params` on each batch item instead.
+Do not pass top-level `params` together with `queries[]` — put `params` on each batch item instead. `page_offset` / `page_size` are not supported in batch mode.
+
+**Pagination (large result sets):**
+
+```json
+{
+  "sql": "SELECT id, name FROM users ORDER BY id",
+  "page_offset": 0,
+  "page_size": 50
+}
+```
+
+Loop until `meta.has_more` is `false`, incrementing `page_offset` by `page_size` each call. Pagination meta: `page_offset`, `page_size`, `has_more`, `total_fetched`.
 
 **Response (single):**
 
@@ -80,7 +94,16 @@ Batch results may arrive out of order relative to the input `queries[]` array (p
 
 ### `analyze_query_performance`
 
-Runs `EXPLAIN (FORMAT JSON)` (Postgres) or `EXPLAIN FORMAT=JSON` (MySQL), returns distilled summary.
+Runs `EXPLAIN (FORMAT JSON)` (Postgres), `EXPLAIN FORMAT=JSON` (MySQL), or `EXPLAIN QUERY PLAN` (SQLite). Returns a distilled summary.
+
+Supports optional `params` for `?` placeholders (same rules as `execute_sql`).
+
+```json
+{
+  "sql": "SELECT * FROM users WHERE id = ?",
+  "params": [42]
+}
+```
 
 On MySQL, `total_cost` and `plan_rows` are best-effort (aggregated from plan nodes when top-level `cost_info` is absent). Sequential scan warnings still apply.
 

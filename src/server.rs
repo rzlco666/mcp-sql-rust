@@ -137,7 +137,7 @@ impl ServerHandler for McpSqlServer {
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
             .with_instructions(format!(
                 "mcp-sql-rust ({mode}). Core tools: search_objects, execute_sql, analyze_query_performance. \
-                 Results are compact columnar JSON. Default max {} rows.",
+                 Results are compact columnar JSON. Default max {} rows. Use page_offset/page_size on execute_sql for pagination.",
                 self.config.max_rows
             ))
     }

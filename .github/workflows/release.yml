@@ -32,6 +32,9 @@ jobs:
           - os: macos-latest
             target: aarch64-apple-darwin
             artifact: mcp-sql-rust-aarch64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact: mcp-sql-rust-x86_64-pc-windows-msvc
 
     steps:
       - uses: actions/checkout@v4
@@ -57,21 +60,29 @@ jobs:
       - name: Package binary
         shell: bash
         run: |
-          mkdir -p dist mcpb-pack
-          BIN="target/${{ matrix.target }}/release/mcp-sql-rust"
-          cp "$BIN" mcpb-pack/mcp-sql-rust
-          cp mcpb/manifest.json mcpb-pack/manifest.json
-          if [ "${{ matrix.os }}" = "macos-latest" ]; then
-            cp "$BIN" "dist/${{ matrix.artifact }}"
+          mkdir -p dist
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            BIN="target/${{ matrix.target }}/release/mcp-sql-rust.exe"
+            cp "$BIN" "dist/${{ matrix.artifact }}.exe"
           else
-            tar -czf "dist/${{ matrix.artifact }}.tar.gz" -C "target/${{ matrix.target }}/release" mcp-sql-rust
+            mkdir -p mcpb-pack
+            BIN="target/${{ matrix.target }}/release/mcp-sql-rust"
+            cp "$BIN" mcpb-pack/mcp-sql-rust
+            cp mcpb/manifest.json mcpb-pack/manifest.json
+            if [ "${{ matrix.os }}" = "macos-latest" ]; then
+              cp "$BIN" "dist/${{ matrix.artifact }}"
+            else
+              tar -czf "dist/${{ matrix.artifact }}.tar.gz" -C "target/${{ matrix.target }}/release" mcp-sql-rust
+            fi
           fi
 
       - uses: actions/setup-node@v4
+        if: matrix.os != 'windows-latest'
         with:
           node-version: "20"
 
       - name: Package MCPB bundle
+        if: matrix.os != 'windows-latest'
         shell: bash
         run: |
           npm install -g @anthropic-ai/mcpb

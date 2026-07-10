@@ -64,6 +64,12 @@ pub struct ExecuteSqlParams {
     /// Batch of SQL statements executed concurrently.
     #[serde(default)]
     pub queries: Option<Vec<BatchQueryItem>>,
+    /// Row offset for paginated single-query results (after guard LIMIT).
+    #[serde(default)]
+    pub page_offset: Option<usize>,
+    /// Rows per page; defaults to --max-rows when omitted.
+    #[serde(default)]
+    pub page_size: Option<usize>,
     #[serde(default)]
     pub source: Option<String>,
 }
@@ -71,6 +77,9 @@ pub struct ExecuteSqlParams {
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct AnalyzeQueryParams {
     pub sql: String,
+    /// Bound values for `?` placeholders.
+    #[serde(default)]
+    pub params: Option<Vec<Value>>,
     #[serde(default)]
     pub source: Option<String>,
 }
@@ -82,6 +91,8 @@ pub fn exec_options(config: &AppConfig) -> ExecOptions {
         max_bytes: config.max_bytes,
         timeout: config.query_timeout,
         limit_injected: false,
+        page_offset: 0,
+        page_size: None,
     }
 }
 
@@ -137,6 +148,11 @@ pub async fn handle_execute_sql(
                 "provide params on each queries[] item, not at the top level",
             ));
         }
+        if params.page_offset.is_some() || params.page_size.is_some() {
+            return Err(tool_error(
+                "page_offset and page_size are not supported with queries[] batch mode",
+            ));
+        }
         if queries.is_empty() {
             return Err(tool_error("queries array is empty"));
         }
@@ -157,6 +173,9 @@ pub async fn handle_execute_sql(
         .sql
         .ok_or_else(|| tool_error("sql or queries is required"))?;
     let query_params = params.params.unwrap_or_default();
+    let mut opts = exec_options(config);
+    opts.page_offset = params.page_offset.unwrap_or(0);
+    opts.page_size = params.page_size;
 
     let result = execute_query(&source.pool, &sql, &query_params, &opts)
         .await
@@ -175,6 +194,7 @@ pub async fn handle_analyze_query(
     let summary = analyze_query(
         &source.pool,
         &params.sql,
+        &params.params.unwrap_or_default(),
         config.write_mode,
         config.query_timeout,
     )
