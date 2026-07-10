@@ -371,10 +371,18 @@ async fn connect_pool(
             Ok(EnginePool::Postgres(pool))
         }
         EngineKind::Mysql => {
-            let pool = MySqlPoolOptions::new()
-                .max_connections(pool_size)
-                .connect(url)
-                .await?;
+            let mut options = MySqlPoolOptions::new().max_connections(pool_size);
+            if !write_mode.allows_dml() {
+                options = options.after_connect(|conn, _meta| {
+                    Box::pin(async move {
+                        sqlx::query("SET SESSION TRANSACTION READ ONLY")
+                            .execute(conn)
+                            .await?;
+                        Ok(())
+                    })
+                });
+            }
+            let pool = options.connect(url).await?;
             Ok(EnginePool::Mysql(pool))
         }
     }

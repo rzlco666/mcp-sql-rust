@@ -88,26 +88,11 @@ See [docs/TOOLS.md](docs/TOOLS.md).
 
 | Doc | Topic |
 |-----|-------|
-| [AGENTS.md](AGENTS.md) | Agent entrypoint (Cursor + OpenCode) |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Modules & data flow |
 | [docs/TOOLS.md](docs/TOOLS.md) | Tool schemas |
 | [docs/SECURITY.md](docs/SECURITY.md) | Guard & write tiers |
 | [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | .env / TOML / CLI |
-| [docs/DEV_WORKFLOW.md](docs/DEV_WORKFLOW.md) | Human + agent workflow |
-| [docs/OMNI_CURSOR_SETUP.md](docs/OMNI_CURSOR_SETUP.md) | OMNI + CodeGraph |
-| [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) | PRs |
-
-## Agent development (Cursor / OpenCode)
-
-This repo ships:
-
-- `.cursor/rules/*.mdc` — always-on + file-scoped rules  
-- `.cursor/skills/*` — workflows (dev, guard, tools, OMNI)  
-- `opencode.json` + `.opencode/agents/` — OpenCode commands/agents  
-- `.omni/filters/` — OMNI distillation for cargo/rg/diff  
-- CodeGraph: run `codegraph init` after clone  
-
-See [docs/OMNI_CURSOR_SETUP.md](docs/OMNI_CURSOR_SETUP.md).
+| [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) | PRs & development |
 
 ## Security
 

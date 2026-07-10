@@ -3,7 +3,7 @@ use std::time::Duration;
 use futures::stream::{self, StreamExt};
 use serde::Serialize;
 use serde_json::Value;
-use sqlx::{mysql::MySqlRow, postgres::PgRow, Column, Row};
+use sqlx::{mysql::MySqlRow, postgres::PgRow, Column, Row, TypeInfo};
 
 use crate::config::WriteMode;
 use crate::db::{EngineKind, EnginePool};
@@ -251,18 +251,41 @@ fn pg_value(row: &PgRow, index: usize) -> Result<Value, ExecError> {
     Ok(Value::Null)
 }
 
+fn mysql_type_is_bool(type_name: &str) -> bool {
+    type_name.eq_ignore_ascii_case("BOOL") || type_name.eq_ignore_ascii_case("BOOLEAN")
+}
+
 fn mysql_value(row: &MySqlRow, index: usize) -> Result<Value, ExecError> {
-    if let Ok(v) = row.try_get::<bool, _>(index) {
-        return Ok(Value::Bool(v));
-    }
+    // Numeric types before bool — sqlx MySQL maps integer 0/1 to bool (e.g. COUNT(*)).
     if let Ok(v) = row.try_get::<i64, _>(index) {
+        return Ok(Value::from(v));
+    }
+    if let Ok(v) = row.try_get::<u64, _>(index) {
         return Ok(Value::from(v));
     }
     if let Ok(v) = row.try_get::<f64, _>(index) {
         return Ok(Value::from(v));
     }
+    if mysql_type_is_bool(row.column(index).type_info().name()) {
+        if let Ok(v) = row.try_get::<bool, _>(index) {
+            return Ok(Value::Bool(v));
+        }
+    }
     if let Ok(v) = row.try_get::<String, _>(index) {
         return Ok(Value::String(v));
     }
     Ok(Value::Null)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mysql_type_is_bool_recognizes_boolean_types() {
+        assert!(mysql_type_is_bool("BOOL"));
+        assert!(mysql_type_is_bool("BOOLEAN"));
+        assert!(!mysql_type_is_bool("BIGINT"));
+        assert!(!mysql_type_is_bool("TINYINT"));
+    }
 }

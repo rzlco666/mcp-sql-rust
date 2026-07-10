@@ -35,6 +35,17 @@ mod guard_tests {
         .unwrap_err();
         assert!(err.to_string().contains("multiple statements"));
     }
+
+    #[test]
+    fn show_processlist_allowed_on_mysql() {
+        validate_and_prepare(
+            "SHOW PROCESSLIST",
+            EngineKind::Mysql,
+            WriteMode::ReadOnly,
+            100,
+        )
+        .unwrap();
+    }
 }
 
 #[cfg(test)]

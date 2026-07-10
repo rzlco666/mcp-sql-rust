@@ -74,7 +74,8 @@ pub fn classify(stmt: &Statement) -> Result<StmtClass, crate::guard::GuardError>
         | Statement::ShowViews { .. }
         | Statement::ShowFunctions { .. }
         | Statement::ShowStatus { .. }
-        | Statement::ShowCollation { .. } => Ok(StmtClass {
+        | Statement::ShowCollation { .. }
+        | Statement::ShowProcessList { .. } => Ok(StmtClass {
             class: SqlClass::Read,
             label: "SHOW".into(),
             explain_analyze: false,

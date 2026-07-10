@@ -11,6 +11,9 @@ Cargo.lock
 .omni/
 
 # AI agent local tooling (Cursor / OpenCode) — keep on disk, do not publish
-.cursor/rules/
-.cursor/skills/
+.cursor/
 .opencode/
+AGENTS.md
+opencode.json
+docs/OMNI_CURSOR_SETUP.md
+docs/DEV_WORKFLOW.md

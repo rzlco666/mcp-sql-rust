@@ -49,9 +49,13 @@ Run SQL or concurrent batch.
 }
 ```
 
+Batch results may arrive out of order relative to the input `queries[]` array (parallel execution). Map results by array index on the client.
+
 ### `analyze_query_performance`
 
-Runs `EXPLAIN (FORMAT JSON)` (Postgres) or `EXPLAIN FORMAT=JSON` (MySQL), returns distilled summary:
+Runs `EXPLAIN (FORMAT JSON)` (Postgres) or `EXPLAIN FORMAT=JSON` (MySQL), returns distilled summary.
+
+On MySQL, `total_cost` and `plan_rows` are best-effort (aggregated from plan nodes when top-level `cost_info` is absent). Sequential scan warnings still apply.
 
 ```json
 {
@@ -80,7 +84,7 @@ These wrap the same introspection as `search_objects` — prefer `search_objects
 
 | Flag | Default | Meaning |
 |------|---------|---------|
-| `--max-rows` | 100 | LIMIT inject + soft row cap |
+| `--max-rows` | 100 | Auto-inject `LIMIT` when SELECT has none (does not override explicit LIMIT) |
 | `--max-bytes` | 65536 | Truncate columnar payload |
 | `--query-timeout` | 10s | Per-query timeout |
 | `--batch-concurrency` | 8 | Max parallel batch queries |

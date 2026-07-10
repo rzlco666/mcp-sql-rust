@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use sqlx::{mysql::MySqlRow, postgres::PgRow, MySqlPool, Row};
 
 use crate::db::{EngineKind, EnginePool};
 
@@ -183,7 +184,7 @@ pub async fn list_tables(
         }
         EngineKind::Mysql => {
             let pool = pool.mysql().expect("mysql");
-            let schema = schema.unwrap_or("");
+            let schema = resolve_mysql_schema(pool, schema).await?;
 
             let rows = if schema.is_empty() {
                 sqlx::query(
@@ -197,7 +198,7 @@ pub async fn list_tables(
                     "SELECT table_schema, table_name FROM information_schema.tables \
                      WHERE table_schema = ? AND table_type = 'BASE TABLE' ORDER BY table_name",
                 )
-                .bind(schema)
+                .bind(&schema)
                 .fetch_all(pool)
                 .await?
             };
@@ -266,21 +267,22 @@ async fn list_columns(
         }
         EngineKind::Mysql => {
             let pool = pool.mysql().expect("mysql");
-            let rows = if let Some(schema) = schema {
-                sqlx::query(
-                    "SELECT table_schema, table_name, column_name, data_type, is_nullable \
-                     FROM information_schema.columns WHERE table_schema = ? \
-                     ORDER BY table_name, ordinal_position",
-                )
-                .bind(schema)
-                .fetch_all(pool)
-                .await?
-            } else {
+            let schema = resolve_mysql_schema(pool, schema).await?;
+            let rows = if schema.is_empty() {
                 sqlx::query(
                     "SELECT table_schema, table_name, column_name, data_type, is_nullable \
                      FROM information_schema.columns \
                      ORDER BY table_schema, table_name, ordinal_position",
                 )
+                .fetch_all(pool)
+                .await?
+            } else {
+                sqlx::query(
+                    "SELECT table_schema, table_name, column_name, data_type, is_nullable \
+                     FROM information_schema.columns WHERE table_schema = ? \
+                     ORDER BY table_name, ordinal_position",
+                )
+                .bind(&schema)
                 .fetch_all(pool)
                 .await?
             };
@@ -291,14 +293,14 @@ async fn list_columns(
                         let table: String = r.try_get(1).ok()?;
                         let name: String = r.try_get(2).ok()?;
                         let data_type: String = r.try_get(3).ok()?;
-                        let nullable: String = r.try_get(4).ok()?;
+                        let nullable = parse_mysql_is_nullable_row(r, 4);
                         Some(SchemaObject {
                             object_type: ObjectType::Column,
                             schema: Some(sch),
                             name,
                             table: Some(table),
                             data_type: Some(data_type),
-                            nullable: Some(nullable == "YES"),
+                            nullable: Some(nullable),
                             columns: None,
                             indexes: None,
                         })
@@ -318,7 +320,10 @@ pub async fn describe_table(
     let engine = pool.engine();
     let schema = match engine {
         EngineKind::Postgres => schema.unwrap_or("public").to_string(),
-        EngineKind::Mysql => schema.map(str::to_string).unwrap_or_default(),
+        EngineKind::Mysql => {
+            let pool = pool.mysql().expect("mysql");
+            resolve_mysql_schema(pool, schema).await?
+        }
     };
 
     let columns = match engine {
@@ -335,50 +340,26 @@ pub async fn describe_table(
             .fetch_all(pool)
             .await?;
             rows.iter()
-                .filter_map(|r| {
-                    Some(ColumnInfo {
-                        name: r.try_get(0).ok()?,
-                        data_type: r.try_get(1).ok()?,
-                        nullable: r.try_get::<String, _>(2).ok()? == "YES",
-                    })
-                })
+                .filter_map(column_info_from_pg_info_schema_row)
                 .collect()
         }
         EngineKind::Mysql => {
             let pool = pool.mysql().expect("mysql");
-            let rows = if schema.is_empty() {
-                sqlx::query(
-                    "SELECT column_name, data_type, is_nullable \
-                     FROM information_schema.columns WHERE table_name = ? \
-                     ORDER BY ordinal_position",
-                )
-                .bind(table)
-                .fetch_all(pool)
-                .await?
-            } else {
-                sqlx::query(
-                    "SELECT column_name, data_type, is_nullable \
-                     FROM information_schema.columns \
-                     WHERE table_schema = ? AND table_name = ? ORDER BY ordinal_position",
-                )
-                .bind(&schema)
-                .bind(table)
-                .fetch_all(pool)
-                .await?
-            };
-            rows.iter()
-                .filter_map(|r| {
-                    Some(ColumnInfo {
-                        name: r.try_get(0).ok()?,
-                        data_type: r.try_get(1).ok()?,
-                        nullable: r.try_get::<String, _>(2).ok()? == "YES",
-                    })
-                })
-                .collect()
+            let mut columns =
+                mysql_columns_from_information_schema(pool, &schema, table).await?;
+            if columns.is_empty() {
+                columns = mysql_columns_from_show(pool, &schema, table).await?;
+            }
+            columns
         }
     };
 
-    let indexes = list_indexes(pool, Some(&schema), Some(table), None)
+    let index_schema = if schema.is_empty() {
+        None
+    } else {
+        Some(schema.as_str())
+    };
+    let indexes = list_indexes(pool, index_schema, Some(table), None)
         .await?
         .into_iter()
         .map(|o| IndexInfo {
@@ -553,4 +534,135 @@ fn filter_objects(mut objects: Vec<SchemaObject>, keyword: Option<&str>) -> Vec<
     objects
 }
 
-use sqlx::Row;
+async fn resolve_mysql_schema(
+    pool: &MySqlPool,
+    schema: Option<&str>,
+) -> Result<String, sqlx::Error> {
+    if let Some(s) = schema.filter(|s| !s.is_empty()) {
+        return Ok(s.to_string());
+    }
+    let row = sqlx::query("SELECT DATABASE()").fetch_one(pool).await?;
+    let db: Option<String> = row.try_get(0)?;
+    Ok(db.unwrap_or_default())
+}
+
+fn parse_is_nullable(raw: &str) -> bool {
+    raw.eq_ignore_ascii_case("YES")
+}
+
+fn parse_mysql_is_nullable_row(row: &MySqlRow, index: usize) -> bool {
+    if let Ok(s) = row.try_get::<String, _>(index) {
+        return parse_is_nullable(&s);
+    }
+    if let Ok(s) = row.try_get::<&str, _>(index) {
+        return parse_is_nullable(s);
+    }
+    false
+}
+
+fn column_info_from_pg_info_schema_row(r: &PgRow) -> Option<ColumnInfo> {
+    let name: String = r.try_get(0).ok()?;
+    let data_type: String = r.try_get(1).ok()?;
+    let nullable = r.try_get::<String, _>(2).ok().is_some_and(|s| parse_is_nullable(&s));
+    Some(ColumnInfo {
+        name,
+        data_type,
+        nullable,
+    })
+}
+
+fn column_info_from_mysql_info_schema_row(r: &MySqlRow) -> Option<ColumnInfo> {
+    let name: String = r.try_get(0).ok()?;
+    let data_type: String = r.try_get(1).ok()?;
+    let nullable = parse_mysql_is_nullable_row(r, 2);
+    Some(ColumnInfo {
+        name,
+        data_type,
+        nullable,
+    })
+}
+
+fn mysql_quote_ident(name: &str) -> String {
+    format!("`{}`", name.replace('`', "``"))
+}
+
+async fn mysql_columns_from_information_schema(
+    pool: &MySqlPool,
+    schema: &str,
+    table: &str,
+) -> Result<Vec<ColumnInfo>, sqlx::Error> {
+    let rows = if schema.is_empty() {
+        sqlx::query(
+            "SELECT column_name, data_type, is_nullable \
+             FROM information_schema.columns WHERE table_name = ? \
+             ORDER BY ordinal_position",
+        )
+        .bind(table)
+        .fetch_all(pool)
+        .await?
+    } else {
+        sqlx::query(
+            "SELECT column_name, data_type, is_nullable \
+             FROM information_schema.columns \
+             WHERE table_schema = ? AND table_name = ? \
+             ORDER BY ordinal_position",
+        )
+        .bind(schema)
+        .bind(table)
+        .fetch_all(pool)
+        .await?
+    };
+    Ok(rows
+        .iter()
+        .filter_map(column_info_from_mysql_info_schema_row)
+        .collect())
+}
+
+async fn mysql_columns_from_show(
+    pool: &MySqlPool,
+    schema: &str,
+    table: &str,
+) -> Result<Vec<ColumnInfo>, sqlx::Error> {
+    let sql = if schema.is_empty() {
+        format!("SHOW FULL COLUMNS FROM {}", mysql_quote_ident(table))
+    } else {
+        format!(
+            "SHOW FULL COLUMNS FROM {}.{}",
+            mysql_quote_ident(schema),
+            mysql_quote_ident(table)
+        )
+    };
+    let rows = sqlx::query(&sql).fetch_all(pool).await?;
+    Ok(rows
+        .iter()
+        .filter_map(|r| {
+            let name: String = r.try_get("Field").ok().or_else(|| r.try_get(0).ok())?;
+            let data_type: String = r.try_get("Type").ok().or_else(|| r.try_get(1).ok())?;
+            let null_raw: String = r.try_get("Null").ok().or_else(|| r.try_get(2).ok())?;
+            Some(ColumnInfo {
+                name,
+                data_type,
+                nullable: parse_is_nullable(&null_raw),
+            })
+        })
+        .collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_is_nullable_accepts_yes_no_case_insensitive() {
+        assert!(parse_is_nullable("YES"));
+        assert!(parse_is_nullable("yes"));
+        assert!(!parse_is_nullable("NO"));
+        assert!(!parse_is_nullable("no"));
+    }
+
+    #[test]
+    fn mysql_quote_ident_escapes_backticks() {
+        assert_eq!(mysql_quote_ident("fw_users"), "`fw_users`");
+        assert_eq!(mysql_quote_ident("a`b"), "`a``b`");
+    }
+}

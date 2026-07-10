@@ -60,6 +60,7 @@ bigdecimal = { version = "0.4", features = ["serde"] }
 
 [dev-dependencies]
 tempfile = "3"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 
 [profile.release]
 lto = "thin"
