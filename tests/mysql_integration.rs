@@ -6,8 +6,8 @@ use std::time::Duration;
 
 use mcp_sql_rust::config::WriteMode;
 use mcp_sql_rust::db::{describe_table, execute_query, ExecOptions, EnginePool};
-use mcp_sql_rust::guard::validate_and_prepare;
 use mcp_sql_rust::db::EngineKind;
+use mcp_sql_rust::guard::validate_and_prepare;
 use sqlx::mysql::MySqlPoolOptions;
 use sqlx::Row;
 
@@ -42,9 +42,10 @@ async fn mysql_describe_table_returns_columns() {
     let pool = mysql_pool()
         .await
         .expect("set MYSQL_DATABASE_URL to a mysql:// DSN");
+    let mysql = pool.mysql().unwrap();
 
     let row = sqlx::query("SELECT DATABASE()")
-        .fetch_one(pool.mysql().unwrap())
+        .fetch_one(mysql)
         .await
         .expect("DATABASE()");
     let schema: String = row.try_get(0).expect("schema name");
@@ -54,10 +55,25 @@ async fn mysql_describe_table_returns_columns() {
          WHERE table_schema = ? AND table_type = 'BASE TABLE' LIMIT 1",
     )
     .bind(&schema)
-    .fetch_all(pool.mysql().unwrap())
+    .fetch_all(mysql)
     .await
     .expect("list tables");
     let table: String = tables[0].try_get(0).expect("table name");
+
+    let raw_rows = sqlx::query(
+        "SELECT table_schema, table_name, column_name, data_type, is_nullable \
+         FROM information_schema.columns \
+         WHERE table_schema = ? AND table_name = ?",
+    )
+    .bind(&schema)
+    .bind(&table)
+    .fetch_all(mysql)
+    .await
+    .expect("raw column query");
+    assert!(
+        !raw_rows.is_empty(),
+        "binding bug: information_schema returned 0 rows for {schema}.{table}"
+    );
 
     let object = describe_table(&pool, Some(&schema), &table)
         .await
@@ -66,6 +82,48 @@ async fn mysql_describe_table_returns_columns() {
     assert!(
         !columns.is_empty(),
         "describe_table should return columns for {schema}.{table}"
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires MYSQL_DATABASE_URL or mysql:// DATABASE_URL"]
+async fn mysql_describe_table_fw_users_if_present() {
+    let pool = mysql_pool()
+        .await
+        .expect("set MYSQL_DATABASE_URL to a mysql:// DSN");
+    let mysql = pool.mysql().unwrap();
+
+    let schema_row = sqlx::query("SELECT DATABASE()")
+        .fetch_one(mysql)
+        .await
+        .expect("DATABASE()");
+    let schema: String = schema_row.try_get(0).expect("schema");
+
+    let exists: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM information_schema.tables \
+         WHERE table_schema = ? AND table_name = 'fw_users'",
+    )
+    .bind(&schema)
+    .fetch_one(mysql)
+    .await
+    .expect("table exists check");
+
+    if exists == 0 {
+        return;
+    }
+
+    let object = describe_table(&pool, Some(&schema), "fw_users")
+        .await
+        .expect("describe fw_users");
+    let columns = object.columns.expect("columns");
+    assert!(!columns.is_empty(), "fw_users should have columns");
+
+    let qualified = describe_table(&pool, None, &format!("{schema}.fw_users"))
+        .await
+        .expect("describe qualified table");
+    assert!(
+        !qualified.columns.unwrap().is_empty(),
+        "schema.table form should work"
     );
 }
 

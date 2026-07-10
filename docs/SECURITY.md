@@ -22,7 +22,7 @@ flowchart LR
 - Reject empty / multi-statement strings
 - Classify: Read / Dml / Ddl / Txn / Other
 - Enforce against `WriteMode`
-- Inject `LIMIT` on SELECT when missing (does not clamp an explicit higher LIMIT)
+- Inject `LIMIT` on SELECT when missing; clamp explicit `LIMIT` above `--max-rows`
 - `EXPLAIN ANALYZE` requires writes
 - Batch `queries[]` items are each parsed as a single statement; multi-statement strings are rejected
 

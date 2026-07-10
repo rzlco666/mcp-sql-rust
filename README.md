@@ -92,6 +92,7 @@ See [docs/TOOLS.md](docs/TOOLS.md).
 | [docs/TOOLS.md](docs/TOOLS.md) | Tool schemas |
 | [docs/SECURITY.md](docs/SECURITY.md) | Guard & write tiers |
 | [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | .env / TOML / CLI |
+| [docs/MYSQL.md](docs/MYSQL.md) | MySQL-specific behavior |
 | [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) | PRs & development |
 
 ## Security

@@ -46,6 +46,18 @@ mod guard_tests {
         )
         .unwrap();
     }
+
+    #[test]
+    fn clamps_user_limit_to_max_rows() {
+        let p = validate_and_prepare(
+            "SELECT 1 LIMIT 200",
+            EngineKind::Mysql,
+            WriteMode::ReadOnly,
+            50,
+        )
+        .unwrap();
+        assert!(p.sql.contains("LIMIT 50"));
+    }
 }
 
 #[cfg(test)]

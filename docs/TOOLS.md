@@ -84,7 +84,7 @@ These wrap the same introspection as `search_objects` — prefer `search_objects
 
 | Flag | Default | Meaning |
 |------|---------|---------|
-| `--max-rows` | 100 | Auto-inject `LIMIT` when SELECT has none (does not override explicit LIMIT) |
+| `--max-rows` | 100 | Auto-inject `LIMIT` when missing; clamp explicit `LIMIT` above this value |
 | `--max-bytes` | 65536 | Truncate columnar payload |
 | `--query-timeout` | 10s | Per-query timeout |
 | `--batch-concurrency` | 8 | Max parallel batch queries |
