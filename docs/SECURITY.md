@@ -22,8 +22,9 @@ flowchart LR
 - Reject empty / multi-statement strings
 - Classify: Read / Dml / Ddl / Txn / Other
 - Enforce against `WriteMode`
-- Inject `LIMIT` on SELECT without limit
+- Inject `LIMIT` on SELECT when missing (does not clamp an explicit higher LIMIT)
 - `EXPLAIN ANALYZE` requires writes
+- Batch `queries[]` items are each parsed as a single statement; multi-statement strings are rejected
 
 ### 2. Write tiers (CLI)
 
@@ -38,7 +39,8 @@ Transaction control (`BEGIN`/`COMMIT`/`ROLLBACK`) is always blocked at the guard
 ### 3. Session hardening
 
 - Postgres (when not allowing writes): `SET default_transaction_read_only = on` in `after_connect`
-- MySQL: rely on AST + least-privilege user (v1)
+- MySQL (when not allowing writes): `SET SESSION TRANSACTION READ ONLY` in `after_connect`
+- Both engines still rely on AST guard + least-privilege DB user
 
 ### 4. Operational recommendation
 

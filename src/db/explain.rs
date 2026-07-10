@@ -190,6 +190,14 @@ fn normalize_mysql(query: &str, json: Value) -> ExplainSummary {
         walk_mysql_block(query_block, &mut nodes, &mut warnings);
     }
 
+    // MySQL 8 often omits top-level cost_info; aggregate from table nodes when missing.
+    if total_cost.is_none() {
+        total_cost = nodes.iter().filter_map(|n| n.cost).reduce(|a, b| a + b);
+    }
+    if plan_rows.is_none() {
+        plan_rows = nodes.iter().filter_map(|n| n.rows).max();
+    }
+
     if nodes.iter().any(|n| n.node_type.to_uppercase().contains("ALL")) {
         warnings.push("Full table scan (type ALL) — consider adding an index".into());
     }

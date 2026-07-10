@@ -141,4 +141,27 @@ mod tests {
         )
         .unwrap();
     }
+
+    #[test]
+    fn allows_show_processlist_mysql_readonly() {
+        validate_and_prepare(
+            "SHOW PROCESSLIST",
+            EngineKind::Mysql,
+            WriteMode::ReadOnly,
+            100,
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn blocks_batch_multi_statement_in_single_string() {
+        let err = validate_and_prepare(
+            "SELECT 1; DROP TABLE users",
+            EngineKind::Mysql,
+            WriteMode::ReadOnly,
+            100,
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("multiple statements"));
+    }
 }

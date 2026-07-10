@@ -3,8 +3,9 @@
 ## Development
 
 1. Fork / clone https://github.com/rzlco666/mcp-sql-rust
-2. `cargo test`
-3. Follow `docs/DEV_WORKFLOW.md` and `AGENTS.md`
+2. Rust 1.85+
+3. `cargo test` and `cargo build --release`
+4. Optional MySQL integration tests: `MYSQL_DATABASE_URL=mysql://... cargo test --test mysql_integration -- --ignored`
 
 ## Commit style
 
@@ -22,7 +23,7 @@ chore: rename crate to mcp-sql-rust
 - Describe **why**, not only what
 - Link issues
 - Include test plan checklist
-- Do not commit `.env`, credentials, or `.codegraph/`
+- Do not commit `.env`, credentials, `.codegraph/`, or local AI tooling (`.cursor/`, `AGENTS.md`)
 
 ## Code review focus
 
