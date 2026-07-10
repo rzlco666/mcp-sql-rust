@@ -5,7 +5,7 @@ use serde_json::Value;
 use sqlparser::ast::{
     Expr, LimitClause, Query, Statement, Value as SqlValue,
 };
-use sqlparser::dialect::{Dialect, MySqlDialect, PostgreSqlDialect};
+use sqlparser::dialect::{Dialect, MySqlDialect, PostgreSqlDialect, SQLiteDialect};
 use sqlparser::parser::Parser;
 
 use crate::config::WriteMode;
@@ -45,6 +45,7 @@ pub fn validate_and_prepare(
     let dialect: Box<dyn Dialect> = match engine {
         EngineKind::Postgres => Box::new(PostgreSqlDialect {}),
         EngineKind::Mysql => Box::new(MySqlDialect {}),
+        EngineKind::Sqlite => Box::new(SQLiteDialect {}),
     };
 
     let statements = Parser::parse_sql(dialect.as_ref(), &normalized)

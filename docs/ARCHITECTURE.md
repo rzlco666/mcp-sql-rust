@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Expose MySQL and PostgreSQL to AI agents via the [Model Context Protocol](https://modelcontextprotocol.io) with:
+Expose MySQL, PostgreSQL, and SQLite to AI agents via the [Model Context Protocol](https://modelcontextprotocol.io) with:
 
 - Minimal tool schemas (token-efficient)
 - Async concurrency (Tokio + sqlx pools)
@@ -22,6 +22,7 @@ flowchart TB
   Exec --> Pool[EnginePool]
   Pool --> PG[(PostgreSQL)]
   Pool --> MY[(MySQL)]
+  Pool --> SQ[(SQLite)]
   Exec --> Col[Columnar JSON]
   Col --> Agent
 ```
@@ -55,7 +56,7 @@ src/
 |------|----------|------|
 | `WriteMode` | `config.rs` | ReadOnly / AllowWrites / AllowDdl |
 | `AppConfig` | `config.rs` | Runtime settings + source map |
-| `EnginePool` | `db/pool.rs` | `Postgres(PgPool)` \| `Mysql(MySqlPool)` |
+| `EnginePool` | `db/pool.rs` | `Postgres` \| `Mysql` \| `Sqlite` pools |
 | `PreparedSql` | `guard/mod.rs` | Validated SQL + limit_injected |
 | `ColumnarResult` | `format/columnar.rs` | Token-efficient rows |
 | `McpSqlServer` | `server.rs` | MCP service |

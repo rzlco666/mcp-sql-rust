@@ -1,0 +1,26 @@
+{
+  "manifest_version": "0.2",
+  "name": "mcp-sql-rust",
+  "version": "0.2.0",
+  "description": "Token-efficient MCP server for MySQL, PostgreSQL, and SQLite",
+  "author": {
+    "name": "rzlco666"
+  },
+  "server": {
+    "type": "binary",
+    "entry_point": "mcp-sql-rust",
+    "mcp_config": {
+      "command": "${__dirname}/mcp-sql-rust",
+      "args": []
+    }
+  },
+  "user_config": {
+    "database_url": {
+      "type": "string",
+      "title": "DATABASE_URL",
+      "description": "Database connection URL (postgresql://, mysql://, or sqlite:)",
+      "required": true,
+      "sensitive": true
+    }
+  }
+}

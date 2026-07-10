@@ -404,6 +404,7 @@ mod tests {
     fn validates_param_count() {
         validate_param_count("SELECT 1", &[], EngineKind::Mysql).unwrap();
         validate_param_count("SELECT ? AS v", &[Value::from(1)], EngineKind::Mysql).unwrap();
+        validate_param_count("SELECT ? AS v", &[Value::from(1)], EngineKind::Sqlite).unwrap();
         let err = validate_param_count("SELECT 1", &[Value::from(1)], EngineKind::Mysql).unwrap_err();
         assert!(err.to_string().contains("unexpected params"));
         let err =
@@ -434,5 +435,8 @@ mod tests {
             EngineKind::Postgres,
         )
         .unwrap();
+        let err =
+            validate_param_count("SELECT $1", &[Value::from(1)], EngineKind::Sqlite).unwrap_err();
+        assert!(err.to_string().contains("PostgreSQL"));
     }
 }

@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 use futures::stream::{self, StreamExt};
 use serde::Serialize;
 use serde_json::Value;
-use sqlx::{mysql::MySqlRow, postgres::PgRow, Column, Row, TypeInfo};
+use sqlx::{mysql::MySqlRow, postgres::PgRow, sqlite::SqliteRow, Column, Row, TypeInfo};
 
 use crate::config::WriteMode;
 use crate::db::{EngineKind, EnginePool};
@@ -189,6 +189,16 @@ async fn run_sql(
                 Ok(ColumnarResult::empty_command(result.rows_affected()))
             }
         }
+        EngineKind::Sqlite => {
+            let pool = pool.sqlite().map_err(|e| ExecError::Other(e.to_string()))?;
+            if is_select_like(sql) {
+                let rows = bind_sqlite_params(sql, params)?.fetch_all(pool).await?;
+                sqlite_rows_to_columnar(&rows)
+            } else {
+                let result = bind_sqlite_params(sql, params)?.execute(pool).await?;
+                Ok(ColumnarResult::empty_command(result.rows_affected()))
+            }
+        }
     }
 }
 
@@ -229,6 +239,39 @@ fn bind_mysql_params<'q>(
     sql: &'q str,
     params: &[Value],
 ) -> Result<sqlx::query::Query<'q, sqlx::MySql, sqlx::mysql::MySqlArguments>, ExecError> {
+    let mut q = sqlx::query(sql);
+    for p in params {
+        q = match p {
+            Value::Null => q.bind(None::<String>),
+            Value::Bool(b) => q.bind(*b),
+            Value::Number(n) => {
+                if let Some(i) = n.as_i64() {
+                    q.bind(i)
+                } else if let Some(f) = n.as_f64() {
+                    q.bind(f)
+                } else if let Some(u) = n.as_u64() {
+                    q.bind(i64::try_from(u).map_err(|_| {
+                        ExecError::Other(format!("parameter value out of range: {u}"))
+                    })?)
+                } else {
+                    return Err(ExecError::Other("invalid numeric parameter".into()));
+                }
+            }
+            Value::String(s) => q.bind(s.clone()),
+            Value::Array(_) | Value::Object(_) => {
+                return Err(ExecError::Other(
+                    "array and object parameters are not supported".into(),
+                ));
+            }
+        };
+    }
+    Ok(q)
+}
+
+fn bind_sqlite_params<'q>(
+    sql: &'q str,
+    params: &[Value],
+) -> Result<sqlx::query::Query<'q, sqlx::Sqlite, sqlx::sqlite::SqliteArguments<'q>>, ExecError> {
     let mut q = sqlx::query(sql);
     for p in params {
         q = match p {
@@ -335,6 +378,40 @@ fn mysql_rows_to_columnar(rows: &[MySqlRow]) -> Result<ColumnarResult, ExecError
     })
 }
 
+fn sqlite_rows_to_columnar(rows: &[SqliteRow]) -> Result<ColumnarResult, ExecError> {
+    if rows.is_empty() {
+        return Ok(empty_columnar());
+    }
+
+    let cols: Vec<String> = rows[0]
+        .columns()
+        .iter()
+        .map(|c| c.name().to_string())
+        .collect();
+
+    let mut out_rows = Vec::with_capacity(rows.len());
+    for row in rows {
+        let mut values = Vec::with_capacity(cols.len());
+        for (i, _) in row.columns().iter().enumerate() {
+            values.push(sqlite_value(row, i)?);
+        }
+        out_rows.push(values);
+    }
+
+    let n = out_rows.len();
+    Ok(ColumnarResult {
+        cols,
+        rows: out_rows,
+        meta: ColumnarMeta {
+            n,
+            truncated: false,
+            rows_affected: None,
+            limit_injected: None,
+            limit_clamped: None,
+        },
+    })
+}
+
 fn empty_columnar() -> ColumnarResult {
     ColumnarResult {
         cols: vec![],
@@ -387,6 +464,22 @@ fn mysql_value(row: &MySqlRow, index: usize) -> Result<Value, ExecError> {
         if let Ok(v) = row.try_get::<bool, _>(index) {
             return Ok(Value::Bool(v));
         }
+    }
+    if let Ok(v) = row.try_get::<String, _>(index) {
+        return Ok(Value::String(v));
+    }
+    Ok(Value::Null)
+}
+
+fn sqlite_value(row: &SqliteRow, index: usize) -> Result<Value, ExecError> {
+    if let Ok(v) = row.try_get::<i64, _>(index) {
+        return Ok(Value::from(v));
+    }
+    if let Ok(v) = row.try_get::<f64, _>(index) {
+        return Ok(Value::from(v));
+    }
+    if let Ok(v) = row.try_get::<bool, _>(index) {
+        return Ok(Value::Bool(v));
     }
     if let Ok(v) = row.try_get::<String, _>(index) {
         return Ok(Value::String(v));
