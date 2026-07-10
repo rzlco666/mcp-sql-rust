@@ -1,11 +1,13 @@
 # mcp-sql-rust
 
-**Token-efficient [MCP](https://modelcontextprotocol.io) server for MySQL and PostgreSQL**, written in Rust.
+**Token-efficient [MCP](https://modelcontextprotocol.io) server for MySQL, PostgreSQL, and SQLite**, written in Rust.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.88%2B-orange.svg)](https://www.rust-lang.org/)
 
 Repo: https://github.com/rzlco666/mcp-sql-rust
+
+- MCP Registry name: `mcp-name: io.github.rzlco666/mcp-sql-rust`
 
 ## Why
 
@@ -22,7 +24,7 @@ Existing MCP SQL servers often:
 
 | Feature | Detail |
 |---------|--------|
-| Dual engine | PostgreSQL + MySQL (`sqlx`) |
+| Dual engine | PostgreSQL + MySQL + SQLite (`sqlx`) |
 | Zero-config | Walks cwd→parents for `.env` |
 | Token-efficient | 3 core tools; columnar JSON |
 | Smart SQL guard | AST deny before DB hit |
@@ -129,6 +131,8 @@ See [docs/TOOLS.md](docs/TOOLS.md).
 | [docs/SECURITY.md](docs/SECURITY.md) | Guard & write tiers |
 | [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | .env / TOML / CLI |
 | [docs/MYSQL.md](docs/MYSQL.md) | MySQL-specific behavior |
+| [docs/SQLITE.md](docs/SQLITE.md) | SQLite URLs & limitations |
+| [docs/MCP_REGISTRY.md](docs/MCP_REGISTRY.md) | MCP Registry (MCPB) publish |
 | [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) | PRs & development |
 
 ## Security

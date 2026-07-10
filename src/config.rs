@@ -7,6 +7,7 @@ use clap::Parser;
 use serde::{Deserialize, Serialize};
 use sqlx::mysql::MySqlPoolOptions;
 use sqlx::postgres::PgPoolOptions;
+use sqlx::sqlite::SqlitePoolOptions;
 
 use crate::db::EngineKind;
 use crate::db::EnginePool;
@@ -35,7 +36,7 @@ impl WriteMode {
 }
 
 #[derive(Debug, Parser)]
-#[command(name = "mcp-sql-rust", about = "Token-efficient MCP server for MySQL and PostgreSQL")]
+#[command(name = "mcp-sql-rust", about = "Token-efficient MCP server for MySQL, PostgreSQL, and SQLite")]
 pub struct Cli {
     /// Database connection URL (overrides .env discovery).
     #[arg(long)]
@@ -266,6 +267,12 @@ fn resolve_url_from_env() -> Result<String> {
         }
     }
 
+    if let Ok(url) = std::env::var("SQLITE_URL") {
+        if !url.is_empty() {
+            return Ok(url);
+        }
+    }
+
     if let Some(url) = build_mysql_url_from_parts() {
         return Ok(url);
     }
@@ -335,6 +342,7 @@ pub fn detect_engine(hint: Option<&str>, url: &str) -> Result<EngineKind> {
         return match h.to_lowercase().as_str() {
             "postgres" | "postgresql" | "pg" => Ok(EngineKind::Postgres),
             "mysql" | "mariadb" => Ok(EngineKind::Mysql),
+            "sqlite" => Ok(EngineKind::Sqlite),
             other => bail!("unknown engine hint '{other}'"),
         };
     }
@@ -343,8 +351,25 @@ pub fn detect_engine(hint: Option<&str>, url: &str) -> Result<EngineKind> {
         Ok(EngineKind::Postgres)
     } else if lower.starts_with("mysql://") {
         Ok(EngineKind::Mysql)
+    } else if lower.starts_with("sqlite:") || lower.starts_with("sqlite://") {
+        Ok(EngineKind::Sqlite)
     } else {
-        bail!("cannot detect engine from URL scheme; use postgresql:// or mysql://")
+        bail!("cannot detect engine from URL scheme; use postgresql://, mysql://, or sqlite:")
+    }
+}
+
+fn sqlite_connect_url(url: &str, write_mode: WriteMode) -> String {
+    if write_mode.allows_dml() {
+        return url.to_string();
+    }
+    let lower = url.to_lowercase();
+    if lower.contains("mode=ro") || lower.contains("mode=readonly") {
+        return url.to_string();
+    }
+    if url.contains('?') {
+        format!("{url}&mode=ro")
+    } else {
+        format!("{url}?mode=ro")
     }
 }
 
@@ -385,6 +410,12 @@ async fn connect_pool(
             let pool = options.connect(url).await?;
             Ok(EnginePool::Mysql(pool))
         }
+        EngineKind::Sqlite => {
+            let connect_url = sqlite_connect_url(url, write_mode);
+            let options = SqlitePoolOptions::new().max_connections(pool_size);
+            let pool = options.connect(&connect_url).await?;
+            Ok(EnginePool::Sqlite(pool))
+        }
     }
 }
 
@@ -409,6 +440,14 @@ mod tests {
         assert_eq!(
             detect_engine(None, "mysql://localhost/db").unwrap(),
             EngineKind::Mysql
+        );
+        assert_eq!(
+            detect_engine(None, "sqlite::memory:").unwrap(),
+            EngineKind::Sqlite
+        );
+        assert_eq!(
+            detect_engine(None, "sqlite://./data.db").unwrap(),
+            EngineKind::Sqlite
         );
     }
 }

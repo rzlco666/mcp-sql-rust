@@ -57,13 +57,25 @@ jobs:
       - name: Package binary
         shell: bash
         run: |
-          mkdir -p dist
+          mkdir -p dist mcpb-pack
           BIN="target/${{ matrix.target }}/release/mcp-sql-rust"
+          cp "$BIN" mcpb-pack/mcp-sql-rust
+          cp mcpb/manifest.json mcpb-pack/manifest.json
           if [ "${{ matrix.os }}" = "macos-latest" ]; then
             cp "$BIN" "dist/${{ matrix.artifact }}"
           else
             tar -czf "dist/${{ matrix.artifact }}.tar.gz" -C "target/${{ matrix.target }}/release" mcp-sql-rust
           fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Package MCPB bundle
+        shell: bash
+        run: |
+          npm install -g @anthropic-ai/mcpb
+          mcpb pack mcpb-pack "dist/${{ matrix.artifact }}.mcpb"
 
       - uses: actions/upload-artifact@v4
         with:

@@ -204,6 +204,7 @@ fn engine_label(engine: EngineKind) -> &'static str {
     match engine {
         EngineKind::Postgres => "postgres",
         EngineKind::Mysql => "mysql",
+        EngineKind::Sqlite => "sqlite",
     }
 }
 

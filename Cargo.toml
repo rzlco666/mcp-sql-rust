@@ -1,14 +1,14 @@
 [package]
 name = "mcp-sql-rust"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.88"
-description = "Token-efficient MCP server for MySQL and PostgreSQL — written in Rust"
+description = "Token-efficient MCP server for MySQL, PostgreSQL, and SQLite — written in Rust"
 license = "MIT"
 repository = "https://github.com/rzlco666/mcp-sql-rust"
 homepage = "https://github.com/rzlco666/mcp-sql-rust"
 readme = "README.md"
-keywords = ["mcp", "mysql", "postgresql", "sql", "ai-agent"]
+keywords = ["mcp", "mysql", "postgresql", "sqlite", "sql", "ai-agent"]
 categories = ["command-line-utilities", "database"]
 publish = false
 
@@ -36,6 +36,7 @@ sqlx = { version = "0.8", default-features = false, features = [
     "runtime-tokio-rustls",
     "postgres",
     "mysql",
+    "sqlite",
     "json",
     "chrono",
     "uuid",

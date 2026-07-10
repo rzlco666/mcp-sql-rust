@@ -148,6 +148,28 @@ pub async fn list_schemas(
                 keyword,
             ))
         }
+        EngineKind::Sqlite => {
+            let pool = pool.sqlite().expect("sqlite");
+            let rows = sqlx::query("PRAGMA database_list").fetch_all(pool).await?;
+            Ok(filter_objects(
+                rows.iter()
+                    .filter_map(|r| {
+                        let name: String = r.try_get(1).ok()?;
+                        Some(SchemaObject {
+                            object_type: ObjectType::Schema,
+                            schema: None,
+                            name,
+                            table: None,
+                            data_type: None,
+                            nullable: None,
+                            columns: None,
+                            indexes: None,
+                        })
+                    })
+                    .collect(),
+                keyword,
+            ))
+        }
     }
 }
 
@@ -228,6 +250,29 @@ pub async fn list_tables(
                 keyword,
             ))
         }
+        EngineKind::Sqlite => {
+            let pool = pool.sqlite().expect("sqlite");
+            let schema_name = resolve_sqlite_schema(schema);
+            let rows = sqlite_list_table_rows(pool, schema_name).await?;
+            Ok(filter_objects(
+                rows.iter()
+                    .filter_map(|r| {
+                        let name: String = r.try_get(0).ok()?;
+                        Some(SchemaObject {
+                            object_type: ObjectType::Table,
+                            schema: Some(schema_name.into()),
+                            name,
+                            table: None,
+                            data_type: None,
+                            nullable: None,
+                            columns: None,
+                            indexes: None,
+                        })
+                    })
+                    .collect(),
+                keyword,
+            ))
+        }
     }
 }
 
@@ -296,6 +341,39 @@ async fn list_columns(
                 keyword,
             ))
         }
+        EngineKind::Sqlite => {
+            let pool = pool.sqlite().expect("sqlite");
+            let schema_name = resolve_sqlite_schema(schema);
+            let rows = sqlx::query(
+                "SELECT m.name AS table_name, p.name, p.type, p.notnull \
+                 FROM sqlite_master AS m, pragma_table_info(m.name) AS p \
+                 WHERE m.type = 'table' AND m.name NOT LIKE 'sqlite_%' \
+                 ORDER BY m.name, p.cid",
+            )
+            .fetch_all(pool)
+            .await?;
+            Ok(filter_objects(
+                rows.iter()
+                    .filter_map(|r| {
+                        let table: String = r.try_get(0).ok()?;
+                        let name: String = r.try_get(1).ok()?;
+                        let data_type: String = r.try_get(2).ok()?;
+                        let notnull: i64 = r.try_get(3).ok()?;
+                        Some(SchemaObject {
+                            object_type: ObjectType::Column,
+                            schema: Some(schema_name.into()),
+                            name,
+                            table: Some(table),
+                            data_type: Some(data_type),
+                            nullable: Some(notnull == 0),
+                            columns: None,
+                            indexes: None,
+                        })
+                    })
+                    .collect(),
+                keyword,
+            ))
+        }
     }
 }
 
@@ -325,6 +403,10 @@ pub async fn describe_table(
             };
             (schema, table_name)
         }
+        EngineKind::Sqlite => {
+            let (schema_name, table_only) = split_sqlite_table(schema, table);
+            (schema_name, table_only)
+        }
     };
 
     let columns = match engine {
@@ -352,6 +434,10 @@ pub async fn describe_table(
                 columns = mysql_columns_from_show(pool, &schema, &table_name).await?;
             }
             columns
+        }
+        EngineKind::Sqlite => {
+            let pool = pool.sqlite().expect("sqlite");
+            sqlite_columns_from_pragma(pool, &table_name).await?
         }
     };
 
@@ -516,7 +602,127 @@ pub async fn list_indexes(
                 .collect();
             Ok(filter_objects(objects, keyword))
         }
+        EngineKind::Sqlite => {
+            let pool = pool.sqlite().expect("sqlite");
+            let objects = sqlite_list_index_objects(pool, schema, table).await?;
+            Ok(filter_objects(objects, keyword))
+        }
     }
+}
+
+fn resolve_sqlite_schema(schema: Option<&str>) -> &str {
+    schema.filter(|s| !s.is_empty()).unwrap_or("main")
+}
+
+fn split_sqlite_table(schema: Option<&str>, table: &str) -> (String, String) {
+    let trimmed = table.trim().trim_matches('"');
+    if let Some((sch, tbl)) = trimmed.rsplit_once('.') {
+        let sch = sch.trim().trim_matches('"');
+        let tbl = tbl.trim().trim_matches('"');
+        if !sch.is_empty() && !tbl.is_empty() {
+            return (sch.to_string(), tbl.to_string());
+        }
+    }
+    let schema_name = resolve_sqlite_schema(schema).to_string();
+    (schema_name, trimmed.to_string())
+}
+
+async fn sqlite_list_table_rows(
+    pool: &sqlx::SqlitePool,
+    schema_name: &str,
+) -> Result<Vec<sqlx::sqlite::SqliteRow>, sqlx::Error> {
+    if schema_name == "main" {
+        sqlx::query(
+            "SELECT name FROM sqlite_master \
+             WHERE type = 'table' AND name NOT LIKE 'sqlite_%' \
+             ORDER BY name",
+        )
+        .fetch_all(pool)
+        .await
+    } else {
+        let sql = format!(
+            "SELECT name FROM \"{schema_name}\".sqlite_master \
+             WHERE type = 'table' AND name NOT LIKE 'sqlite_%' \
+             ORDER BY name"
+        );
+        sqlx::query(&sql).fetch_all(pool).await
+    }
+}
+
+fn sqlite_quote_literal(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "''"))
+}
+
+async fn sqlite_columns_from_pragma(
+    pool: &sqlx::SqlitePool,
+    table: &str,
+) -> Result<Vec<ColumnInfo>, sqlx::Error> {
+    let sql = format!(
+        "SELECT name, type, \"notnull\" FROM pragma_table_info({})",
+        sqlite_quote_literal(table)
+    );
+    let rows = sqlx::query(&sql).fetch_all(pool).await?;
+    Ok(rows
+        .iter()
+        .filter_map(|r| {
+            let name: String = r.try_get(0).ok()?;
+            let data_type: String = r.try_get(1).ok()?;
+            let notnull: i64 = r.try_get(2).ok()?;
+            Some(ColumnInfo {
+                name,
+                data_type,
+                nullable: notnull == 0,
+            })
+        })
+        .collect())
+}
+
+async fn sqlite_list_index_objects(
+    pool: &sqlx::SqlitePool,
+    schema: Option<&str>,
+    table: Option<&str>,
+) -> Result<Vec<SchemaObject>, sqlx::Error> {
+    let schema_name = resolve_sqlite_schema(schema).to_string();
+    let tables: Vec<String> = if let Some(table) = table {
+        vec![table.to_string()]
+    } else {
+        sqlite_list_table_rows(pool, &schema_name)
+            .await?
+            .into_iter()
+            .filter_map(|r| r.try_get(0).ok())
+            .collect()
+    };
+
+    let mut objects = Vec::new();
+    for table_name in tables {
+        let index_sql = format!("PRAGMA index_list({})", sqlite_quote_literal(&table_name));
+        let index_rows = sqlx::query(&index_sql).fetch_all(pool).await?;
+        for row in index_rows {
+            let idx_name: String = row.try_get(1)?;
+            let unique: i64 = row.try_get(2)?;
+            let info_sql = format!("PRAGMA index_info({})", sqlite_quote_literal(&idx_name));
+            let info_rows = sqlx::query(&info_sql).fetch_all(pool).await?;
+            let columns: Vec<String> = info_rows
+                .iter()
+                .filter_map(|r| r.try_get::<String, _>(2).ok())
+                .collect();
+            objects.push(SchemaObject {
+                object_type: ObjectType::Index,
+                schema: Some(schema_name.clone()),
+                name: idx_name,
+                table: Some(table_name.clone()),
+                data_type: None,
+                nullable: None,
+                columns: None,
+                indexes: Some(vec![IndexInfo {
+                    name: "index".into(),
+                    columns,
+                    unique: unique != 0,
+                }]),
+            });
+        }
+    }
+    Ok(objects)
 }
 
 fn filter_objects(mut objects: Vec<SchemaObject>, keyword: Option<&str>) -> Vec<SchemaObject> {

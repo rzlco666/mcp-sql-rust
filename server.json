@@ -1,0 +1,29 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.rzlco666/mcp-sql-rust",
+  "description": "Token-efficient MCP server for MySQL, PostgreSQL, and SQLite",
+  "repository": {
+    "url": "https://github.com/rzlco666/mcp-sql-rust",
+    "source": "github"
+  },
+  "version": "0.2.0",
+  "packages": [
+    {
+      "registryType": "mcpb",
+      "identifier": "https://github.com/rzlco666/mcp-sql-rust/releases/download/v0.2.0/mcp-sql-rust-x86_64-unknown-linux-gnu.mcpb",
+      "fileSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "DATABASE_URL",
+          "description": "Database connection URL",
+          "isRequired": true,
+          "format": "string",
+          "isSecret": true
+        }
+      ]
+    }
+  ]
+}

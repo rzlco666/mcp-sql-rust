@@ -64,7 +64,15 @@ pub async fn analyze_query(
     let explain_sql = match engine {
         EngineKind::Postgres => format!("EXPLAIN (FORMAT JSON) {}", prepared.sql),
         EngineKind::Mysql => format!("EXPLAIN FORMAT=JSON {}", prepared.sql),
+        EngineKind::Sqlite => format!("EXPLAIN QUERY PLAN {}", prepared.sql),
     };
+
+    if engine == EngineKind::Sqlite {
+        let rows = tokio::time::timeout(timeout, fetch_explain_sqlite(pool, &explain_sql))
+            .await
+            .map_err(|_| ExplainError::Other("explain timeout".into()))??;
+        return Ok(normalize_sqlite(&prepared.sql, rows));
+    }
 
     let json = tokio::time::timeout(timeout, fetch_explain_json(pool, &explain_sql, engine))
         .await
@@ -93,13 +101,91 @@ async fn fetch_explain_json(
                 .map_err(|e| ExplainError::Other(format!("invalid explain json: {e}")))?;
             Ok(val)
         }
+        EngineKind::Sqlite => {
+            Err(ExplainError::Other(
+                "sqlite explain uses row-based path".into(),
+            ))
+        }
     }
+}
+
+async fn fetch_explain_sqlite(
+    pool: &EnginePool,
+    explain_sql: &str,
+) -> Result<Vec<String>, ExplainError> {
+    let pool = pool.sqlite().map_err(|e| ExplainError::Other(e.to_string()))?;
+    let rows = sqlx::query(explain_sql).fetch_all(pool).await?;
+    rows.iter()
+        .map(|row| row.try_get::<String, _>(3).map_err(ExplainError::from))
+        .collect()
+}
+
+fn normalize_sqlite(query: &str, details: Vec<String>) -> ExplainSummary {
+    let mut warnings = Vec::new();
+    let mut nodes = Vec::new();
+
+    for detail in details {
+        let upper = detail.to_uppercase();
+        let node_type = if upper.contains("SCAN TABLE") {
+            "SCAN".into()
+        } else if upper.contains("SEARCH") {
+            "SEARCH".into()
+        } else {
+            detail.clone()
+        };
+        let relation = sqlite_relation_from_detail(&detail);
+        let mut issues = Vec::new();
+        if upper.contains("SCAN TABLE") {
+            issues.push("full table scan".into());
+        }
+        nodes.push(PlanNode {
+            node_type,
+            relation,
+            cost: None,
+            rows: None,
+            filter: None,
+            issues,
+        });
+    }
+
+    if nodes.iter().any(|n| n.node_type == "SCAN") {
+        warnings.push("Sequential scan detected — consider adding an index".into());
+    }
+
+    ExplainSummary {
+        engine: "sqlite".into(),
+        query: query.into(),
+        total_cost: None,
+        plan_rows: None,
+        warnings,
+        nodes,
+    }
+}
+
+fn sqlite_relation_from_detail(detail: &str) -> Option<String> {
+    let upper = detail.to_uppercase();
+    if let Some(rest) = upper.strip_prefix("SCAN TABLE ") {
+        return Some(rest.split_whitespace().next()?.to_lowercase());
+    }
+    if let Some(idx) = detail.to_uppercase().find("SEARCH TABLE ") {
+        let rest = &detail[idx + "SEARCH TABLE ".len()..];
+        return Some(rest.split_whitespace().next()?.trim_matches('"').to_string());
+    }
+    None
 }
 
 fn normalize_explain(engine: EngineKind, query: &str, json: Value) -> ExplainSummary {
     match engine {
         EngineKind::Postgres => normalize_postgres(query, json),
         EngineKind::Mysql => normalize_mysql(query, json),
+        EngineKind::Sqlite => ExplainSummary {
+            engine: "sqlite".into(),
+            query: query.into(),
+            total_cost: None,
+            plan_rows: None,
+            warnings: vec![],
+            nodes: vec![],
+        },
     }
 }
 

@@ -5,7 +5,7 @@
 1. CLI `--url` / `--url-env`
 2. Walk cwd → parents for `.env`, then:
    - `DATABASE_URL`
-   - `POSTGRES_URL` / `MYSQL_URL`
+   - `POSTGRES_URL` / `MYSQL_URL` / `SQLITE_URL`
    - `POSTGRES_*` / `PG*` parts
    - `MYSQL_*` parts
 3. `--config mcp-sql-rust.toml` multi-source
@@ -19,6 +19,12 @@ DATABASE_URL=postgresql://user:pass@localhost:5432/app
 
 ```env
 DATABASE_URL=mysql://user:pass@localhost:3306/app
+```
+
+```env
+DATABASE_URL=sqlite::memory:
+# or file:
+DATABASE_URL=sqlite://./data/app.db
 ```
 
 ```env
