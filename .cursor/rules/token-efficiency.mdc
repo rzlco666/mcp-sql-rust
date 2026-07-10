@@ -1,0 +1,26 @@
+---
+description: Token-efficiency rules for MCP tool surface and response format
+globs: "src/tools/**/*.rs,src/format/**/*.rs,src/server.rs"
+alwaysApply: false
+---
+
+# Token Efficiency
+
+## Tool surface
+
+- Default = 3 tools. New tools need `--full-tools` or strong justification in PR.
+- Descriptions ≤ 1 short sentence.
+- Prefer enums / optional params over long prose.
+
+## Responses
+
+- Columnar JSON only: `{"cols":[...],"rows":[[...]],"meta":{...}}`
+- Cap rows (`max_rows`) and bytes (`max_bytes`); set `meta.truncated=true`
+- EXPLAIN: distilled summary, not raw plan tree dump
+- Errors: short actionable strings (mention which flag unlocks)
+
+## Anti-patterns
+
+- Schema dump tools in default mode
+- Pretty markdown tables as default
+- Returning passwords / connection URLs in tool output

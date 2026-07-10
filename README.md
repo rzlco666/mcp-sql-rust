@@ -1,0 +1,118 @@
+# mcp-sql-rust
+
+**Token-efficient [MCP](https://modelcontextprotocol.io) server for MySQL and PostgreSQL**, written in Rust.
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Rust](https://img.shields.io/badge/rust-1.85%2B-orange.svg)](https://www.rust-lang.org/)
+
+Repo: https://github.com/rzlco666/mcp-sql-rust
+
+## Why
+
+Existing MCP SQL servers often:
+
+1. Fail to find credentials even when `.env` exists  
+2. Run single-threaded / serial queries  
+3. Waste tokens dumping schemas and row-object JSON  
+4. Rely on weak keyword filters for safety  
+
+**mcp-sql-rust** fixes those with Tokio + sqlx pools, `.env` auto-discovery, a 3-tool default surface, columnar results, and `sqlparser` AST guards.
+
+## Features
+
+| Feature | Detail |
+|---------|--------|
+| Dual engine | PostgreSQL + MySQL (`sqlx`) |
+| Zero-config | Walks cwd→parents for `.env` |
+| Token-efficient | 3 core tools; columnar JSON |
+| Smart SQL guard | AST deny before DB hit |
+| Write tiers | read-only → `--allow-writes` → `--allow-ddl` |
+| Concurrency | Parallel tools + `queries[]` batch |
+| EXPLAIN helper | `analyze_query_performance` |
+| Multi-source | Optional TOML |
+| Transports | stdio + Streamable HTTP |
+
+## Install
+
+```bash
+git clone https://github.com/rzlco666/mcp-sql-rust.git
+cd mcp-sql-rust
+cargo install --path .
+```
+
+Binary: `mcp-sql-rust`
+
+## Quick start (Cursor)
+
+`.cursor/mcp.json` / user MCP config:
+
+```json
+{
+  "mcpServers": {
+    "sql": {
+      "command": "mcp-sql-rust",
+      "args": []
+    }
+  }
+}
+```
+
+Project `.env`:
+
+```env
+DATABASE_URL=postgresql://user:pass@localhost:5432/mydb
+```
+
+## CLI
+
+```bash
+mcp-sql-rust                          # stdio, .env, read-only
+mcp-sql-rust --allow-writes
+mcp-sql-rust --allow-ddl
+mcp-sql-rust --full-tools
+mcp-sql-rust --http 127.0.0.1:8080
+mcp-sql-rust --config ./mcp-sql-rust.toml
+```
+
+## Default tools
+
+| Tool | Role |
+|------|------|
+| `search_objects` | Search schemas/tables/columns/indexes |
+| `execute_sql` | SQL or concurrent `queries[]` |
+| `analyze_query_performance` | Distilled EXPLAIN |
+
+See [docs/TOOLS.md](docs/TOOLS.md).
+
+## Documentation
+
+| Doc | Topic |
+|-----|-------|
+| [AGENTS.md](AGENTS.md) | Agent entrypoint (Cursor + OpenCode) |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Modules & data flow |
+| [docs/TOOLS.md](docs/TOOLS.md) | Tool schemas |
+| [docs/SECURITY.md](docs/SECURITY.md) | Guard & write tiers |
+| [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | .env / TOML / CLI |
+| [docs/DEV_WORKFLOW.md](docs/DEV_WORKFLOW.md) | Human + agent workflow |
+| [docs/OMNI_CURSOR_SETUP.md](docs/OMNI_CURSOR_SETUP.md) | OMNI + CodeGraph |
+| [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) | PRs |
+
+## Agent development (Cursor / OpenCode)
+
+This repo ships:
+
+- `.cursor/rules/*.mdc` — always-on + file-scoped rules  
+- `.cursor/skills/*` — workflows (dev, guard, tools, OMNI)  
+- `opencode.json` + `.opencode/agents/` — OpenCode commands/agents  
+- `.omni/filters/` — OMNI distillation for cargo/rg/diff  
+- CodeGraph: run `codegraph init` after clone  
+
+See [docs/OMNI_CURSOR_SETUP.md](docs/OMNI_CURSOR_SETUP.md).
+
+## Security
+
+Default is **read-only**. Destructive SQL is blocked at the AST layer with **zero DB round-trip**. Details: [docs/SECURITY.md](docs/SECURITY.md).
+
+## License
+
+MIT

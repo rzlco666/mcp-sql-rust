@@ -1,0 +1,47 @@
+---
+description: Core project identity, stack, and locked decisions for mcp-sql-rust
+alwaysApply: true
+---
+
+# mcp-sql-rust — Core
+
+Binary: `mcp-sql-rust`. Crate: `mcp_sql_rust`. Repo: https://github.com/rzlco666/mcp-sql-rust
+
+## Stack
+
+Rust + Tokio + `rmcp` + `sqlx` (PG/MySQL) + `sqlparser` + `clap` + `dotenvy`.
+
+## Locked decisions (do not silently change)
+
+1. Default tool surface = **3 tools** (`search_objects`, `execute_sql`, `analyze_query_performance`)
+2. Extra tools only behind `--full-tools`
+3. Write policy tiers: ReadOnly → AllowWrites → AllowDdl
+4. Result format = **columnar JSON only**
+5. Guard runs **before** pool checkout on deny
+6. Transports: stdio + Streamable HTTP (`--http`)
+
+## Module map
+
+| Path | Role |
+|------|------|
+| `src/main.rs` | clap + tracing + transport select |
+| `src/config.rs` | .env walk, TOML sources, WriteMode |
+| `src/db/` | pool, exec, explain, schema |
+| `src/guard/` | AST classify + enforce |
+| `src/format/` | columnar serializer |
+| `src/tools/` | MCP tool handlers |
+| `src/server.rs` | rmcp router + HTTP |
+
+## Before coding
+
+1. Read `AGENTS.md`
+2. OMNI ritual (see `omni-agent-protocol.mdc`)
+3. `codegraph_explore` for structural tasks in `src/**`
+4. Prefer skill `mcp-sql-dev-workflow`
+
+## Verify
+
+```bash
+cargo test
+cargo build --release
+```

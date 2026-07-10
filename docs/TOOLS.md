@@ -1,0 +1,87 @@
+# MCP Tools — mcp-sql-rust
+
+## Default tools (token-efficient)
+
+### `search_objects`
+
+Progressive schema discovery.
+
+| Param | Type | Notes |
+|-------|------|-------|
+| `object_type` | `schema` \| `table` \| `column` \| `index` | required |
+| `keyword` | string? | case-insensitive filter |
+| `schema` | string? | scope |
+| `source` | string? | multi-source name |
+| `offset` | number? | default 0 |
+| `limit` | number? | default 50, max 200 |
+
+### `execute_sql`
+
+Run SQL or concurrent batch.
+
+| Param | Type | Notes |
+|-------|------|-------|
+| `sql` | string? | single statement |
+| `queries` | string[]? | batch (not both with `sql`) |
+| `source` | string? | connection name |
+
+**Response (single):**
+
+```json
+{
+  "ok": true,
+  "data": {
+    "cols": ["id", "name"],
+    "rows": [[1, "alice"]],
+    "meta": { "n": 1, "truncated": false, "limit_injected": true }
+  }
+}
+```
+
+**Response (batch):**
+
+```json
+{
+  "results": [
+    { "ok": true, "data": { "cols": [], "rows": [], "meta": { "n": 0, "truncated": false } } },
+    { "ok": false, "error": "SQL guard: DDL blocked; restart with --allow-ddl" }
+  ]
+}
+```
+
+### `analyze_query_performance`
+
+Runs `EXPLAIN (FORMAT JSON)` (Postgres) or `EXPLAIN FORMAT=JSON` (MySQL), returns distilled summary:
+
+```json
+{
+  "engine": "postgresql",
+  "query": "SELECT ...",
+  "total_cost": 12.5,
+  "plan_rows": 1000,
+  "warnings": ["Sequential scan detected — consider adding an index"],
+  "nodes": [{ "node_type": "Seq Scan", "relation": "users", "issues": ["full table scan"] }]
+}
+```
+
+## Full tools (`--full-tools`)
+
+| Tool | Purpose |
+|------|---------|
+| `list_sources` | Configured connection names |
+| `list_schemas` | Schemas / databases |
+| `list_tables` | Tables in schema |
+| `describe_table` | Columns + indexes for one table |
+| `list_indexes` | Indexes for schema/table |
+
+These wrap the same introspection as `search_objects` — prefer `search_objects` in default mode to save tokens.
+
+## Caps
+
+| Flag | Default | Meaning |
+|------|---------|---------|
+| `--max-rows` | 100 | LIMIT inject + soft row cap |
+| `--max-bytes` | 65536 | Truncate columnar payload |
+| `--query-timeout` | 10s | Per-query timeout |
+| `--batch-concurrency` | 8 | Max parallel batch queries |
+| `--pool-size` | 10 | sqlx pool per source |

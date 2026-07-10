@@ -1,0 +1,196 @@
+use std::sync::Arc;
+
+use anyhow::Result;
+use rmcp::handler::server::wrapper::Parameters;
+use rmcp::model::{
+    CallToolResult, ListToolsResult, ServerCapabilities, ServerInfo, Tool,
+};
+use rmcp::transport::streamable_http_server::{
+    session::local::LocalSessionManager, StreamableHttpServerConfig, StreamableHttpService,
+};
+use rmcp::transport::stdio;
+use rmcp::{
+    tool, tool_handler, tool_router, ErrorData as McpError, ServerHandler, ServiceExt,
+};
+use tokio_util::sync::CancellationToken;
+
+use crate::config::AppConfig;
+use crate::tools::core::{
+    handle_analyze_query, handle_execute_sql, handle_search_objects, AnalyzeQueryParams,
+    ExecuteSqlParams, SearchObjectsParams,
+};
+use crate::tools::full::{
+    handle_describe_table, handle_list_indexes, handle_list_schemas, handle_list_sources,
+    handle_list_tables, DescribeTableParams, ListIndexesParams, ListTablesParams, SourceParams,
+};
+
+const CORE_TOOLS: &[&str] = &[
+    "search_objects",
+    "execute_sql",
+    "analyze_query_performance",
+];
+
+const FULL_TOOLS: &[&str] = &[
+    "list_sources",
+    "list_schemas",
+    "list_tables",
+    "describe_table",
+    "list_indexes",
+];
+
+#[derive(Clone)]
+pub struct McpSqlServer {
+    config: Arc<AppConfig>,
+    tool_router: rmcp::handler::server::router::tool::ToolRouter<Self>,
+}
+
+impl McpSqlServer {
+    pub fn new(config: AppConfig) -> Self {
+        Self {
+            config: Arc::new(config),
+            tool_router: Self::tool_router(),
+        }
+    }
+}
+
+#[tool_router]
+impl McpSqlServer {
+    #[tool(description = "Search schemas, tables, columns, or indexes with keyword filter.")]
+    async fn search_objects(
+        &self,
+        params: Parameters<SearchObjectsParams>,
+    ) -> Result<CallToolResult, McpError> {
+        handle_search_objects(&self.config, params.0).await
+    }
+
+    #[tool(description = "Execute one SQL statement or a concurrent batch via queries[].")]
+    async fn execute_sql(
+        &self,
+        params: Parameters<ExecuteSqlParams>,
+    ) -> Result<CallToolResult, McpError> {
+        handle_execute_sql(&self.config, params.0).await
+    }
+
+    #[tool(description = "EXPLAIN query plan summary for slow SELECT diagnostics.")]
+    async fn analyze_query_performance(
+        &self,
+        params: Parameters<AnalyzeQueryParams>,
+    ) -> Result<CallToolResult, McpError> {
+        handle_analyze_query(&self.config, params.0).await
+    }
+
+    #[tool(description = "List configured database sources.")]
+    async fn list_sources(&self) -> Result<CallToolResult, McpError> {
+        handle_list_sources(&self.config).await
+    }
+
+    #[tool(description = "List schemas/databases.")]
+    async fn list_schemas(
+        &self,
+        params: Parameters<SourceParams>,
+    ) -> Result<CallToolResult, McpError> {
+        handle_list_schemas(&self.config, params.0).await
+    }
+
+    #[tool(description = "List tables in a schema.")]
+    async fn list_tables(
+        &self,
+        params: Parameters<ListTablesParams>,
+    ) -> Result<CallToolResult, McpError> {
+        handle_list_tables(&self.config, params.0).await
+    }
+
+    #[tool(description = "Describe table columns and indexes.")]
+    async fn describe_table(
+        &self,
+        params: Parameters<DescribeTableParams>,
+    ) -> Result<CallToolResult, McpError> {
+        handle_describe_table(&self.config, params.0).await
+    }
+
+    #[tool(description = "List indexes for a schema or table.")]
+    async fn list_indexes(
+        &self,
+        params: Parameters<ListIndexesParams>,
+    ) -> Result<CallToolResult, McpError> {
+        handle_list_indexes(&self.config, params.0).await
+    }
+}
+
+#[tool_handler]
+impl ServerHandler for McpSqlServer {
+    fn get_info(&self) -> ServerInfo {
+        let mode = match self.config.write_mode {
+            crate::config::WriteMode::ReadOnly => "read-only",
+            crate::config::WriteMode::AllowWrites => "writes",
+            crate::config::WriteMode::AllowDdl => "ddl",
+        };
+        ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
+            .with_instructions(format!(
+                "mcp-sql-rust ({mode}). Core tools: search_objects, execute_sql, analyze_query_performance. \
+                 Results are compact columnar JSON. Default max {} rows.",
+                self.config.max_rows
+            ))
+    }
+
+    async fn list_tools(
+        &self,
+        _request: Option<rmcp::model::PaginatedRequestParams>,
+        _ctx: rmcp::service::RequestContext<rmcp::RoleServer>,
+    ) -> Result<ListToolsResult, McpError> {
+        let all = self.tool_router.list_all();
+        let allowed: Vec<&str> = if self.config.full_tools {
+            CORE_TOOLS
+                .iter()
+                .chain(FULL_TOOLS.iter())
+                .copied()
+                .collect()
+        } else {
+            CORE_TOOLS.to_vec()
+        };
+
+        let tools: Vec<Tool> = all
+            .into_iter()
+            .filter(|t| allowed.iter().any(|name| *name == t.name))
+            .collect();
+
+        Ok(ListToolsResult {
+            tools,
+            ..Default::default()
+        })
+    }
+}
+
+pub async fn run_stdio(config: AppConfig) -> Result<()> {
+    let server = McpSqlServer::new(config);
+    let service = server
+        .serve(stdio())
+        .await
+        .inspect_err(|e| tracing::error!("stdio serve error: {e:?}"))?;
+    service.waiting().await?;
+    Ok(())
+}
+
+pub async fn run_http(config: AppConfig, addr: &str) -> Result<()> {
+    let ct = CancellationToken::new();
+    let cfg = config.clone();
+
+    let service = StreamableHttpService::new(
+        move || Ok(McpSqlServer::new(cfg.clone())),
+        LocalSessionManager::default().into(),
+        StreamableHttpServerConfig::default().with_cancellation_token(ct.child_token()),
+    );
+
+    let router = axum::Router::new().nest_service("/mcp", service);
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    tracing::info!("mcp-sql-rust HTTP listening on http://{addr}/mcp");
+
+    axum::serve(listener, router)
+        .with_graceful_shutdown(async move {
+            tokio::signal::ctrl_c().await.ok();
+            ct.cancel();
+        })
+        .await?;
+
+    Ok(())
+}

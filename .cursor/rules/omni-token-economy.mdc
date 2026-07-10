@@ -1,0 +1,10 @@
+---
+description: Pointer — OMNI token economy for mcp-sql-rust
+alwaysApply: true
+---
+
+# OMNI Token Economy
+
+Canonical ladder: **`omni-agent-protocol.mdc`**. Skills: `omni-token-economy`, `omni-mcp-playbook`. Filter: `.omni/filters/mcp-sql-rust.toml`. Setup: `docs/OMNI_CURSOR_SETUP.md`.
+
+Goal: keep agent context small — CodeGraph for structure, OMNI for shell noise, short rules, progressive docs.

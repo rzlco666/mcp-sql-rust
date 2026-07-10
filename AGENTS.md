@@ -1,0 +1,88 @@
+# mcp-sql-rust — Agent Rules
+
+Token-efficient MCP server for **MySQL** + **PostgreSQL**, written in **Rust**.
+Repo: https://github.com/rzlco666/mcp-sql-rust
+
+## Stack
+
+| Layer | Choice |
+|-------|--------|
+| Language | Rust 1.85+ (edition 2021) |
+| Async | Tokio |
+| MCP | `rmcp` 2.x (stdio + Streamable HTTP) |
+| DB | `sqlx` 0.8 (postgres + mysql, rustls) |
+| SQL AST | `sqlparser` 0.62 |
+| CLI | `clap` 4 |
+| Config | `dotenvy` + optional TOML |
+| HTTP | `axum` 0.8 |
+
+## Commands
+
+```bash
+cargo build --release          # binary: target/release/mcp-sql-rust
+cargo test                     # unit + integration tests
+cargo run -- --help            # CLI help
+cargo run -- --http 127.0.0.1:8080
+MCP_SQL_LOG=debug cargo run -- --url "$DATABASE_URL"
+```
+
+## Architecture (one glance)
+
+```
+CLI (clap) → Config (.env walk / TOML) → EnginePool (sqlx)
+                ↓
+         McpSqlServer (rmcp)
+                ↓
+   Tools → SQL Guard (AST) → Exec / Explain → Columnar JSON
+```
+
+Modules: `config`, `db/{pool,exec,explain,schema}`, `guard`, `format`, `tools/{core,full}`, `server`.
+
+## Locked product decisions
+
+- **Default tools (3):** `search_objects`, `execute_sql`, `analyze_query_performance`
+- **`--full-tools`:** + `list_sources`, `list_schemas`, `list_tables`, `describe_table`, `list_indexes`
+- **Write tiers:** read-only (default) → `--allow-writes` → `--allow-ddl`
+- **Result format:** compact columnar JSON only (`{cols,rows,meta}`)
+- **Transports:** stdio + `--http ADDR` (Streamable HTTP at `/mcp`)
+- **Concurrency:** async pool + `queries[]` batch
+
+## Agent tool ladder (token economy)
+
+| Need | First tool | Fallback |
+|------|------------|----------|
+| Structural / call-graph / impact | `codegraph_explore` | `codegraph_node` / `codegraph callers` |
+| String / config search | `omni_search` or Shell `rg` | — never native Grep |
+| Project conventions | `omni_knowledge` query | `docs/*.md`, `AGENTS.md` |
+| Before editing hot file | `omni_context` | `codegraph_node` |
+| Large shell output | trust OMNI distill; `omni_retrieve` if truncated | — |
+
+Session start: `omni_session status` → `omni_knowledge` for topic → `codegraph_explore` for `src/**`.
+
+## Constraints
+
+- Do **not** expand default tool surface without `--full-tools` flag design.
+- Do **not** return row-object JSON; keep columnar.
+- Do **not** skip AST guard for any execute path.
+- Do **not** log passwords / full DSNs.
+- Prefer `codegraph_*` over dumping whole files into context.
+- Prefer `omni exec` / distilled shell for noisy commands (`cargo test`, `git diff`).
+
+## Docs map
+
+| Doc | Purpose |
+|-----|---------|
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Modules, data flow |
+| [`docs/TOOLS.md`](docs/TOOLS.md) | MCP tool schemas |
+| [`docs/SECURITY.md`](docs/SECURITY.md) | Guard + write tiers |
+| [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md) | .env / TOML / CLI |
+| [`docs/DEV_WORKFLOW.md`](docs/DEV_WORKFLOW.md) | Agent + human workflow |
+| [`docs/OMNI_CURSOR_SETUP.md`](docs/OMNI_CURSOR_SETUP.md) | OMNI + CodeGraph setup |
+| [`docs/CONTRIBUTING.md`](docs/CONTRIBUTING.md) | PR / commit / tests |
+
+## Cursor / OpenCode
+
+- Rules: `.cursor/rules/*.mdc`
+- Skills: `.cursor/skills/*/SKILL.md`
+- OpenCode: `opencode.json` + `.opencode/`
+- CodeGraph: `codegraph init` → `.codegraph/` (gitignored)

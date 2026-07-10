@@ -1,0 +1,67 @@
+[package]
+name = "mcp-sql-rust"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+description = "Token-efficient MCP server for MySQL and PostgreSQL — written in Rust"
+license = "MIT"
+repository = "https://github.com/rzlco666/mcp-sql-rust"
+homepage = "https://github.com/rzlco666/mcp-sql-rust"
+readme = "README.md"
+keywords = ["mcp", "mysql", "postgresql", "sql", "ai-agent"]
+categories = ["command-line-utilities", "database"]
+publish = false
+
+[[bin]]
+name = "mcp-sql-rust"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+thiserror = "2"
+clap = { version = "4", features = ["derive"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "io-std", "io-util", "sync", "time"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+futures = "0.3"
+
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+dotenvy = "0.15"
+
+sqlx = { version = "0.8", default-features = false, features = [
+    "runtime-tokio-rustls",
+    "postgres",
+    "mysql",
+    "json",
+    "chrono",
+    "uuid",
+    "bigdecimal",
+] }
+
+sqlparser = "0.62"
+
+rmcp = { version = "2", features = [
+    "server",
+    "macros",
+    "schemars",
+    "transport-io",
+    "transport-streamable-http-server",
+] }
+schemars = "1"
+
+axum = "0.8"
+chrono = { version = "0.4", default-features = false, features = ["std", "serde"] }
+uuid = { version = "1", features = ["serde"] }
+bigdecimal = { version = "0.4", features = ["serde"] }
+
+[dev-dependencies]
+tempfile = "3"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"

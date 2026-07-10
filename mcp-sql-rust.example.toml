@@ -1,0 +1,10 @@
+default_source = "app"
+
+[[sources]]
+name = "app"
+url_env = "DATABASE_URL"
+
+[[sources]]
+name = "analytics"
+url = "postgresql://readonly:secret@localhost:5432/analytics"
+engine = "postgres"

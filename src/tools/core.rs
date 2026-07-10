@@ -1,0 +1,151 @@
+use std::sync::Arc;
+
+use rmcp::model::{CallToolResult, ContentBlock};
+use rmcp::ErrorData as McpError;
+use schemars::JsonSchema;
+use serde::Deserialize;
+
+use crate::config::AppConfig;
+use crate::db::{
+    analyze_query, execute_batch, execute_query, search_objects, ExecOptions, ObjectType,
+};
+use crate::format::to_json_text;
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct SearchObjectsParams {
+    /// Object kind to search.
+    pub object_type: ObjectType,
+    /// Optional keyword filter.
+    #[serde(default)]
+    pub keyword: Option<String>,
+    /// Schema/database name scope.
+    #[serde(default)]
+    pub schema: Option<String>,
+    /// Named connection source.
+    #[serde(default)]
+    pub source: Option<String>,
+    #[serde(default)]
+    pub offset: Option<usize>,
+    #[serde(default)]
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct ExecuteSqlParams {
+    /// Single SQL statement.
+    #[serde(default)]
+    pub sql: Option<String>,
+    /// Batch of SQL statements executed concurrently.
+    #[serde(default)]
+    pub queries: Option<Vec<String>>,
+    #[serde(default)]
+    pub source: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct AnalyzeQueryParams {
+    pub sql: String,
+    #[serde(default)]
+    pub source: Option<String>,
+}
+
+pub fn exec_options(config: &AppConfig) -> ExecOptions {
+    ExecOptions {
+        write_mode: config.write_mode,
+        max_rows: config.max_rows,
+        max_bytes: config.max_bytes,
+        timeout: config.query_timeout,
+        limit_injected: false,
+    }
+}
+
+pub fn tool_error(msg: impl Into<String>) -> McpError {
+    McpError::invalid_params(msg.into(), None)
+}
+
+pub fn json_result<T: serde::Serialize>(value: &T) -> Result<CallToolResult, McpError> {
+    Ok(CallToolResult::success(vec![ContentBlock::text(to_json_text(
+        value,
+    ))]))
+}
+
+pub async fn handle_search_objects(
+    config: &Arc<AppConfig>,
+    params: SearchObjectsParams,
+) -> Result<CallToolResult, McpError> {
+    let source = config
+        .source(params.source.as_deref())
+        .map_err(|e| tool_error(e.to_string()))?;
+    let offset = params.offset.unwrap_or(0);
+    let limit = params.limit.unwrap_or(50).min(200);
+
+    let result = search_objects(
+        &source.pool,
+        params.object_type,
+        params.keyword.as_deref(),
+        params.schema.as_deref(),
+        offset,
+        limit,
+    )
+    .await
+    .map_err(|e| tool_error(e.to_string()))?;
+
+    json_result(&result)
+}
+
+pub async fn handle_execute_sql(
+    config: &Arc<AppConfig>,
+    params: ExecuteSqlParams,
+) -> Result<CallToolResult, McpError> {
+    let source = config
+        .source(params.source.as_deref())
+        .map_err(|e| tool_error(e.to_string()))?;
+    let opts = exec_options(config);
+
+    if let Some(queries) = params.queries {
+        if params.sql.is_some() {
+            return Err(tool_error("provide either sql or queries, not both"));
+        }
+        if queries.is_empty() {
+            return Err(tool_error("queries array is empty"));
+        }
+        let batch = execute_batch(
+            &source.pool,
+            queries,
+            &opts,
+            config.batch_concurrency,
+            config.fail_fast,
+        )
+        .await;
+        return json_result(&batch);
+    }
+
+    let sql = params
+        .sql
+        .ok_or_else(|| tool_error("sql or queries is required"))?;
+
+    let result = execute_query(&source.pool, &sql, &opts)
+        .await
+        .map_err(|e| tool_error(e.to_string()))?;
+    json_result(&result)
+}
+
+pub async fn handle_analyze_query(
+    config: &Arc<AppConfig>,
+    params: AnalyzeQueryParams,
+) -> Result<CallToolResult, McpError> {
+    let source = config
+        .source(params.source.as_deref())
+        .map_err(|e| tool_error(e.to_string()))?;
+
+    let summary = analyze_query(
+        &source.pool,
+        &params.sql,
+        config.write_mode,
+        config.query_timeout,
+    )
+    .await
+    .map_err(|e| tool_error(e.to_string()))?;
+
+    json_result(&summary)
+}

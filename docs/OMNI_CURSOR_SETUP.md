@@ -1,0 +1,69 @@
+# OMNI + CodeGraph + Cursor Setup — mcp-sql-rust
+
+## Why
+
+Agent sessions burn tokens on noisy `cargo test`, `git diff`, and `rg` output. OMNI distills shell signal (~90%+ reduction historically — see `omni stats --detail`). CodeGraph answers structural questions without loading whole files.
+
+## Prerequisites
+
+- OMNI CLI on PATH (`omni version`)
+- CodeGraph CLI (`codegraph version`)
+- Cursor with MCP servers: `user-omni`, `codegraph` (global `~/.cursor/mcp.json`)
+
+## Project init
+
+```bash
+cd /path/to/mcp-sql-rust
+codegraph init
+codegraph status
+```
+
+Trusted OMNI filter: [`.omni/filters/mcp-sql-rust.toml`](../.omni/filters/mcp-sql-rust.toml)
+
+```bash
+omni goal set 'mcp-sql-rust: powerful token-efficient MCP SQL (MySQL+Postgres)'
+omni remember 'Default tools: search_objects, execute_sql, analyze_query_performance'
+```
+
+## Cursor rules / skills
+
+| Path | Role |
+|------|------|
+| `.cursor/rules/mcp-sql-core.mdc` | Always-on identity |
+| `.cursor/rules/omni-agent-protocol.mdc` | Tool ladder |
+| `.cursor/rules/mcp-ecosystem-protocol.mdc` | CodeGraph first |
+| `.cursor/skills/mcp-sql-dev-workflow/` | Coding workflow |
+| `.cursor/skills/omni-token-economy/` | Session ritual |
+| `.cursor/skills/omni-mcp-playbook/` | OMNI tool reference |
+
+## OpenCode
+
+- `AGENTS.md` + `opencode.json` `instructions`
+- Agents: `.opencode/agents/developer.md`, `reviewer.md`
+
+## Verify OMNI is working
+
+```bash
+omni stats --detail
+omni doctor
+```
+
+In Cursor, shell output should show `[OMNI Active] ⏺ …% reduction`.
+
+## Verify CodeGraph
+
+```bash
+codegraph explore "validate_and_prepare"
+codegraph callers execute_query
+codegraph files
+```
+
+## Troubleshooting
+
+| Symptom | Fix |
+|---------|-----|
+| CodeGraph MCP inactive | `codegraph init` in repo root |
+| Grep tool blocked | Use `omni_search` or Shell `rg` |
+| Read truncated | Pass `limit` ≤ 250 or use codegraph_node |
+| OMNI omitted block | `omni_retrieve` with hash |
+| Wrong cwd after rename | Re-open folder `mcp-sql-rust` |
