@@ -11,7 +11,7 @@
     {
       "registryType": "mcpb",
       "identifier": "https://github.com/rzlco666/mcp-sql-rust/releases/download/v0.2.0/mcp-sql-rust-x86_64-unknown-linux-gnu.mcpb",
-      "fileSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "fileSha256": "9b0fba85707eb91569e8259766bdfdb7ebef04eaddde1d156248fa1a76bc8ef1",
       "transport": {
         "type": "stdio"
       },
