@@ -135,7 +135,7 @@ async fn mysql_count_serializes_as_number_not_bool() {
         .expect("set MYSQL_DATABASE_URL to a mysql:// DSN");
 
     for sql in ["SELECT COUNT(*) AS c FROM (SELECT 1 AS x) t", "SELECT 0 AS c"] {
-        let result = execute_query(&pool, sql, &exec_opts())
+        let result = execute_query(&pool, sql, &[], &exec_opts())
             .await
             .expect("execute")
             .data
@@ -151,16 +151,31 @@ async fn mysql_count_serializes_as_number_not_bool() {
 #[tokio::test]
 #[ignore = "requires MYSQL_DATABASE_URL or mysql:// DATABASE_URL"]
 async fn mysql_show_processlist_allowed_and_runs() {
-    validate_and_prepare("SHOW PROCESSLIST", EngineKind::Mysql, WriteMode::ReadOnly, 100)
+    validate_and_prepare("SHOW PROCESSLIST", &[], EngineKind::Mysql, WriteMode::ReadOnly, 100)
         .expect("guard should allow SHOW PROCESSLIST");
 
     let pool = mysql_pool()
         .await
         .expect("set MYSQL_DATABASE_URL to a mysql:// DSN");
 
-    let result = execute_query(&pool, "SHOW PROCESSLIST", &exec_opts())
+    let result = execute_query(&pool, "SHOW PROCESSLIST", &[], &exec_opts())
         .await
         .expect("execute");
     assert!(result.ok, "SHOW PROCESSLIST should succeed");
     assert!(result.data.is_some());
+}
+
+#[tokio::test]
+#[ignore = "requires MYSQL_DATABASE_URL or mysql:// DATABASE_URL"]
+async fn mysql_parameterized_select_binds_value() {
+    let pool = mysql_pool()
+        .await
+        .expect("set MYSQL_DATABASE_URL to a mysql:// DSN");
+
+    let result = execute_query(&pool, "SELECT ? AS v", &[serde_json::json!(42)], &exec_opts())
+        .await
+        .expect("execute")
+        .data
+        .expect("data");
+    assert_eq!(result.rows[0][0], serde_json::json!(42));
 }

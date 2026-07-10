@@ -1,7 +1,9 @@
 mod classify;
+mod params;
 
+use serde_json::Value;
 use sqlparser::ast::{
-    Expr, LimitClause, Query, Statement, Value,
+    Expr, LimitClause, Query, Statement, Value as SqlValue,
 };
 use sqlparser::dialect::{Dialect, MySqlDialect, PostgreSqlDialect};
 use sqlparser::parser::Parser;
@@ -10,10 +12,15 @@ use crate::config::WriteMode;
 use crate::db::EngineKind;
 
 pub use classify::{SqlClass, StmtClass};
+pub use params::{
+    count_question_mark_placeholders, placeholder_count, rewrite_placeholders_for_postgres,
+    validate_param_count,
+};
 
 #[derive(Debug, Clone)]
 pub struct PreparedSql {
     pub sql: String,
+    pub params: Vec<Value>,
     pub limit_injected: bool,
     pub limit_clamped: bool,
     pub class: StmtClass,
@@ -27,16 +34,20 @@ pub enum GuardError {
 
 pub fn validate_and_prepare(
     sql: &str,
+    query_params: &[Value],
     engine: EngineKind,
     write_mode: WriteMode,
     default_limit: u32,
 ) -> Result<PreparedSql, GuardError> {
+    validate_param_count(sql, query_params, engine)?;
+
+    let normalized = normalize_sql_for_engine(sql, engine);
     let dialect: Box<dyn Dialect> = match engine {
         EngineKind::Postgres => Box::new(PostgreSqlDialect {}),
         EngineKind::Mysql => Box::new(MySqlDialect {}),
     };
 
-    let statements = Parser::parse_sql(dialect.as_ref(), sql)
+    let statements = Parser::parse_sql(dialect.as_ref(), &normalized)
         .map_err(|e| GuardError::Denied(format!("parse error: {e}")))?;
 
     if statements.is_empty() {
@@ -67,7 +78,7 @@ pub fn validate_and_prepare(
     let needs_limit = class.is_select_like()
         && matches!(&stmt, Statement::Query(q) if q.limit_clause.is_none() && q.fetch.is_none());
 
-    let trimmed = strip_trailing_semicolons(sql);
+    let trimmed = strip_trailing_semicolons(&normalized);
     let mut stmt = stmt;
     let limit_clamped = clamp_query_limit(&mut stmt, default_limit);
 
@@ -79,12 +90,24 @@ pub fn validate_and_prepare(
         trimmed.to_string()
     };
 
+    validate_param_count(&final_sql, query_params, engine)?;
+
     Ok(PreparedSql {
         sql: final_sql,
+        params: query_params.to_vec(),
         limit_injected: needs_limit,
         limit_clamped,
         class,
     })
+}
+
+fn normalize_sql_for_engine(sql: &str, engine: EngineKind) -> String {
+    match engine {
+        EngineKind::Postgres if count_question_mark_placeholders(sql) > 0 => {
+            rewrite_placeholders_for_postgres(sql)
+        }
+        _ => sql.to_string(),
+    }
 }
 
 fn enforce_write_mode(class: &StmtClass, mode: WriteMode) -> Result<(), GuardError> {
@@ -119,7 +142,7 @@ fn strip_trailing_semicolons(sql: &str) -> &str {
 fn expr_as_limit(expr: &Expr) -> Option<u64> {
     match expr {
         Expr::Value(v) => match &v.value {
-            Value::Number(n, _) => n.parse().ok(),
+            SqlValue::Number(n, _) => n.parse().ok(),
             _ => None,
         },
         _ => None,
@@ -137,7 +160,7 @@ fn query_limit_value(q: &Query) -> Option<u64> {
 }
 
 fn set_query_limit(q: &mut Query, max_rows: u32) {
-    let limit_expr = Expr::value(Value::Number(max_rows.to_string(), false));
+    let limit_expr = Expr::value(SqlValue::Number(max_rows.to_string(), false));
     match &mut q.limit_clause {
         Some(LimitClause::LimitOffset { limit, .. }) => {
             *limit = Some(limit_expr);
@@ -178,6 +201,7 @@ mod tests {
     fn blocks_drop_in_readonly() {
         let err = validate_and_prepare(
             "DROP TABLE users",
+            &[],
             EngineKind::Postgres,
             WriteMode::ReadOnly,
             100,
@@ -188,7 +212,7 @@ mod tests {
 
     #[test]
     fn allows_select_with_limit_injection() {
-        let p = validate_and_prepare("SELECT 1", EngineKind::Postgres, WriteMode::ReadOnly, 100)
+        let p = validate_and_prepare("SELECT 1", &[], EngineKind::Postgres, WriteMode::ReadOnly, 100)
             .unwrap();
         assert!(p.limit_injected);
         assert!(p.sql.ends_with("LIMIT 100"));
@@ -198,6 +222,7 @@ mod tests {
     fn allows_insert_with_writes() {
         validate_and_prepare(
             "INSERT INTO t VALUES (1)",
+            &[],
             EngineKind::Postgres,
             WriteMode::AllowWrites,
             100,
@@ -209,6 +234,7 @@ mod tests {
     fn allows_show_processlist_mysql_readonly() {
         validate_and_prepare(
             "SHOW PROCESSLIST",
+            &[],
             EngineKind::Mysql,
             WriteMode::ReadOnly,
             100,
@@ -220,6 +246,7 @@ mod tests {
     fn blocks_batch_multi_statement_in_single_string() {
         let err = validate_and_prepare(
             "SELECT 1; DROP TABLE users",
+            &[],
             EngineKind::Mysql,
             WriteMode::ReadOnly,
             100,
@@ -232,6 +259,7 @@ mod tests {
     fn clamps_explicit_limit_above_max_rows() {
         let p = validate_and_prepare(
             "SELECT * FROM users LIMIT 200",
+            &[],
             EngineKind::Postgres,
             WriteMode::ReadOnly,
             50,
@@ -241,5 +269,45 @@ mod tests {
         assert!(p.limit_clamped);
         assert!(p.sql.contains("LIMIT 50"));
         assert!(!p.sql.contains("LIMIT 200"));
+    }
+
+    #[test]
+    fn allows_parameterized_select_mysql() {
+        let p = validate_and_prepare(
+            "SELECT * FROM t WHERE id = ?",
+            &[Value::from(1)],
+            EngineKind::Mysql,
+            WriteMode::ReadOnly,
+            100,
+        )
+        .unwrap();
+        assert_eq!(p.params.len(), 1);
+        assert!(p.limit_injected);
+    }
+
+    #[test]
+    fn allows_parameterized_select_postgres() {
+        validate_and_prepare(
+            "SELECT * FROM t WHERE id = ?",
+            &[Value::from(1)],
+            EngineKind::Postgres,
+            WriteMode::ReadOnly,
+            100,
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn parameterized_limit_clamp_preserves_placeholder() {
+        let p = validate_and_prepare(
+            "SELECT * FROM t WHERE id = ? LIMIT 200",
+            &[Value::from(1)],
+            EngineKind::Postgres,
+            WriteMode::ReadOnly,
+            50,
+        )
+        .unwrap();
+        assert!(p.limit_clamped);
+        assert_eq!(placeholder_count(&p.sql, EngineKind::Postgres), 1);
     }
 }

@@ -26,6 +26,14 @@ flowchart LR
 - `EXPLAIN ANALYZE` requires writes
 - Batch `queries[]` items are each parsed as a single statement; multi-statement strings are rejected
 
+### 1b. Parameterized queries (`params`)
+
+`execute_sql` accepts optional `params` for `?` placeholders (or native `$N` on PostgreSQL). Values are bound via sqlx — they are **not** concatenated into the SQL string.
+
+**What params help with:** safe value binding when agents separate SQL structure from user-supplied values.
+
+**What params do not change:** the AST guard still runs first; write tiers still apply; agents can still send raw SQL without `params` (by design for an MCP SQL server). Multi-statement smuggling in one string remains blocked regardless of `params`.
+
 ### 2. Write tiers (CLI)
 
 | Mode | Flag | Allowed |
