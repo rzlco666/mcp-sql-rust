@@ -3,7 +3,7 @@
 **Token-efficient [MCP](https://modelcontextprotocol.io) server for MySQL and PostgreSQL**, written in Rust.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Rust](https://img.shields.io/badge/rust-1.85%2B-orange.svg)](https://www.rust-lang.org/)
+[![Rust](https://img.shields.io/badge/rust-1.88%2B-orange.svg)](https://www.rust-lang.org/)
 
 Repo: https://github.com/rzlco666/mcp-sql-rust
 
