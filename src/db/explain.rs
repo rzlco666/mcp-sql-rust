@@ -49,7 +49,7 @@ pub async fn analyze_query(
     timeout: Duration,
 ) -> Result<ExplainSummary, ExplainError> {
     let engine = pool.engine();
-    let prepared = validate_and_prepare(sql, engine, write_mode, 100)?;
+    let prepared = validate_and_prepare(sql, &[], engine, write_mode, 100)?;
 
     if !prepared.class.is_select_like() && prepared.class.label() != "SELECT" {
         // Only analyze read queries

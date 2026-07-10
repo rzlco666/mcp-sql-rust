@@ -8,7 +8,9 @@ use sqlx::{mysql::MySqlRow, postgres::PgRow, Column, Row, TypeInfo};
 use crate::config::WriteMode;
 use crate::db::{EngineKind, EnginePool};
 use crate::format::{truncate_to_bytes, ColumnarMeta, ColumnarResult};
-use crate::guard::{validate_and_prepare, GuardError};
+use crate::guard::{
+    validate_and_prepare, GuardError,
+};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ExecError {
@@ -46,10 +48,11 @@ pub struct ExecOptions {
 pub async fn execute_query(
     pool: &EnginePool,
     sql: &str,
+    params: &[Value],
     opts: &ExecOptions,
 ) -> Result<QueryResult, ExecError> {
     let engine = pool.engine();
-    let prepared = validate_and_prepare(sql, engine, opts.write_mode, opts.max_rows)?;
+    let prepared = validate_and_prepare(sql, params, engine, opts.write_mode, opts.max_rows)?;
     let started = Instant::now();
 
     if prepared.class.requires_writes_for_explain() && !opts.write_mode.allows_dml() {
@@ -68,8 +71,11 @@ pub async fn execute_query(
         });
     }
 
-    let result = match tokio::time::timeout(opts.timeout, run_sql(pool, &prepared.sql, engine))
-        .await
+    let result = match tokio::time::timeout(
+        opts.timeout,
+        run_sql(pool, &prepared.sql, &prepared.params, engine),
+    )
+    .await
     {
         Ok(Ok(columnar)) => {
             let mut columnar = columnar;
@@ -87,6 +93,7 @@ pub async fn execute_query(
                 limit_injected = prepared.limit_injected,
                 limit_clamped = prepared.limit_clamped,
                 truncated = columnar.meta.truncated,
+                param_count = prepared.params.len(),
                 "query executed"
             );
             Ok(QueryResult {
@@ -120,17 +127,17 @@ pub async fn execute_query(
 
 pub async fn execute_batch(
     pool: &EnginePool,
-    queries: Vec<String>,
+    queries: Vec<(String, Vec<Value>)>,
     opts: &ExecOptions,
     concurrency: usize,
     fail_fast: bool,
 ) -> BatchResult {
     let results = stream::iter(queries.into_iter())
-        .map(|sql| {
+        .map(|(sql, params)| {
             let pool = pool.clone();
             let opts = opts.clone();
             async move {
-                match execute_query(&pool, &sql, &opts).await {
+                match execute_query(&pool, &sql, &params, &opts).await {
                     Ok(r) => r,
                     Err(e) => QueryResult {
                         ok: false,
@@ -158,30 +165,97 @@ pub async fn execute_batch(
 async fn run_sql(
     pool: &EnginePool,
     sql: &str,
+    params: &[Value],
     engine: EngineKind,
 ) -> Result<ColumnarResult, ExecError> {
     match engine {
         EngineKind::Postgres => {
             let pool = pool.postgres().map_err(|e| ExecError::Other(e.to_string()))?;
             if is_select_like(sql) {
-                let rows = sqlx::query(sql).fetch_all(pool).await?;
+                let rows = bind_pg_params(sql, params)?.fetch_all(pool).await?;
                 pg_rows_to_columnar(&rows)
             } else {
-                let result = sqlx::query(sql).execute(pool).await?;
+                let result = bind_pg_params(sql, params)?.execute(pool).await?;
                 Ok(ColumnarResult::empty_command(result.rows_affected()))
             }
         }
         EngineKind::Mysql => {
             let pool = pool.mysql().map_err(|e| ExecError::Other(e.to_string()))?;
             if is_select_like(sql) {
-                let rows = sqlx::query(sql).fetch_all(pool).await?;
+                let rows = bind_mysql_params(sql, params)?.fetch_all(pool).await?;
                 mysql_rows_to_columnar(&rows)
             } else {
-                let result = sqlx::query(sql).execute(pool).await?;
+                let result = bind_mysql_params(sql, params)?.execute(pool).await?;
                 Ok(ColumnarResult::empty_command(result.rows_affected()))
             }
         }
     }
+}
+
+fn bind_pg_params<'q>(
+    sql: &'q str,
+    params: &[Value],
+) -> Result<sqlx::query::Query<'q, sqlx::Postgres, sqlx::postgres::PgArguments>, ExecError> {
+    let mut q = sqlx::query(sql);
+    for p in params {
+        q = match p {
+            Value::Null => q.bind(None::<String>),
+            Value::Bool(b) => q.bind(*b),
+            Value::Number(n) => {
+                if let Some(i) = n.as_i64() {
+                    q.bind(i)
+                } else if let Some(f) = n.as_f64() {
+                    q.bind(f)
+                } else if let Some(u) = n.as_u64() {
+                    q.bind(i64::try_from(u).map_err(|_| {
+                        ExecError::Other(format!("parameter value out of range: {u}"))
+                    })?)
+                } else {
+                    return Err(ExecError::Other("invalid numeric parameter".into()));
+                }
+            }
+            Value::String(s) => q.bind(s.clone()),
+            Value::Array(_) | Value::Object(_) => {
+                return Err(ExecError::Other(
+                    "array and object parameters are not supported".into(),
+                ));
+            }
+        };
+    }
+    Ok(q)
+}
+
+fn bind_mysql_params<'q>(
+    sql: &'q str,
+    params: &[Value],
+) -> Result<sqlx::query::Query<'q, sqlx::MySql, sqlx::mysql::MySqlArguments>, ExecError> {
+    let mut q = sqlx::query(sql);
+    for p in params {
+        q = match p {
+            Value::Null => q.bind(None::<String>),
+            Value::Bool(b) => q.bind(*b),
+            Value::Number(n) => {
+                if let Some(i) = n.as_i64() {
+                    q.bind(i)
+                } else if let Some(f) = n.as_f64() {
+                    q.bind(f)
+                } else if let Some(u) = n.as_u64() {
+                    q.bind(i64::try_from(u).map_err(|_| {
+                        ExecError::Other(format!("parameter value out of range: {u}"))
+                    })?)
+                } else {
+                    return Err(ExecError::Other("invalid numeric parameter".into()));
+                }
+            }
+            Value::String(s) => q.bind(s.clone()),
+            Value::Array(_) | Value::Object(_) => {
+                return Err(ExecError::Other(
+                    "array and object parameters are not supported".into(),
+                ));
+            }
+        };
+    }
+    Ok(q)
 }
 
 fn is_select_like(sql: &str) -> bool {

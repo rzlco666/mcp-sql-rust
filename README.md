@@ -115,7 +115,7 @@ Do not expose the HTTP server directly to the internet without TLS and access co
 | Tool | Role |
 |------|------|
 | `search_objects` | Search schemas/tables/columns/indexes |
-| `execute_sql` | SQL or concurrent `queries[]` |
+| `execute_sql` | SQL or concurrent `queries[]` (optional `params` for `?` placeholders) |
 | `analyze_query_performance` | Distilled EXPLAIN |
 
 See [docs/TOOLS.md](docs/TOOLS.md).

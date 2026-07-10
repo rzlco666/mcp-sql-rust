@@ -22,8 +22,33 @@ Run SQL or concurrent batch.
 | Param | Type | Notes |
 |-------|------|-------|
 | `sql` | string? | single statement |
-| `queries` | string[]? | batch (not both with `sql`) |
+| `params` | array? | bound values for `?` placeholders (single-query mode) |
+| `queries` | string[] or object[]? | batch (not both with `sql`) |
 | `source` | string? | connection name |
+
+Use `?` for placeholders in the MCP API (PostgreSQL sources auto-rewrite to `$1`, `$2`, … before execution). Advanced PostgreSQL clients may send native `$N` placeholders instead of `?`.
+
+**Single query with params:**
+
+```json
+{
+  "sql": "SELECT * FROM users WHERE id = ?",
+  "params": ["42"]
+}
+```
+
+**Batch (legacy strings + parameterized objects):**
+
+```json
+{
+  "queries": [
+    "SELECT 1",
+    { "sql": "SELECT * FROM users WHERE id = ?", "params": ["42"] }
+  ]
+}
+```
+
+Do not pass top-level `params` together with `queries[]` — put `params` on each batch item instead.
 
 **Response (single):**
 

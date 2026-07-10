@@ -4,6 +4,7 @@ use rmcp::model::{CallToolResult, ContentBlock};
 use rmcp::ErrorData as McpError;
 use schemars::JsonSchema;
 use serde::Deserialize;
+use serde_json::Value;
 
 use crate::config::AppConfig;
 use crate::db::{
@@ -31,13 +32,38 @@ pub struct SearchObjectsParams {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
+#[serde(untagged)]
+pub enum BatchQueryItem {
+    /// Legacy batch entry: raw SQL string.
+    Legacy(String),
+    /// Parameterized batch entry.
+    Parameterized {
+        sql: String,
+        #[serde(default)]
+        params: Option<Vec<Value>>,
+    },
+}
+
+impl BatchQueryItem {
+    fn into_sql_params(self) -> (String, Vec<Value>) {
+        match self {
+            Self::Legacy(sql) => (sql, Vec::new()),
+            Self::Parameterized { sql, params } => (sql, params.unwrap_or_default()),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
 pub struct ExecuteSqlParams {
     /// Single SQL statement.
     #[serde(default)]
     pub sql: Option<String>,
+    /// Bound values for `?` placeholders (single-query mode only).
+    #[serde(default)]
+    pub params: Option<Vec<Value>>,
     /// Batch of SQL statements executed concurrently.
     #[serde(default)]
-    pub queries: Option<Vec<String>>,
+    pub queries: Option<Vec<BatchQueryItem>>,
     #[serde(default)]
     pub source: Option<String>,
 }
@@ -106,12 +132,19 @@ pub async fn handle_execute_sql(
         if params.sql.is_some() {
             return Err(tool_error("provide either sql or queries, not both"));
         }
+        if params.params.is_some() {
+            return Err(tool_error(
+                "provide params on each queries[] item, not at the top level",
+            ));
+        }
         if queries.is_empty() {
             return Err(tool_error("queries array is empty"));
         }
+        let batch_items: Vec<(String, Vec<Value>)> =
+            queries.into_iter().map(|q| q.into_sql_params()).collect();
         let batch = execute_batch(
             &source.pool,
-            queries,
+            batch_items,
             &opts,
             config.batch_concurrency,
             config.fail_fast,
@@ -123,8 +156,9 @@ pub async fn handle_execute_sql(
     let sql = params
         .sql
         .ok_or_else(|| tool_error("sql or queries is required"))?;
+    let query_params = params.params.unwrap_or_default();
 
-    let result = execute_query(&source.pool, &sql, &opts)
+    let result = execute_query(&source.pool, &sql, &query_params, &opts)
         .await
         .map_err(|e| tool_error(e.to_string()))?;
     json_result(&result)
