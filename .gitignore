@@ -4,6 +4,13 @@ Cargo.lock
 .env.*
 !.env.example
 *.db
-.codegraph/
-.omni/cache/
 .DS_Store
+
+# Local indexes / caches
+.codegraph/
+.omni/
+
+# AI agent local tooling (Cursor / OpenCode) — keep on disk, do not publish
+.cursor/rules/
+.cursor/skills/
+.opencode/
