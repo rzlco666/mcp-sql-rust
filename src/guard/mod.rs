@@ -15,6 +15,7 @@ pub use classify::{SqlClass, StmtClass};
 pub struct PreparedSql {
     pub sql: String,
     pub limit_injected: bool,
+    pub limit_clamped: bool,
     pub class: StmtClass,
 }
 
@@ -81,6 +82,7 @@ pub fn validate_and_prepare(
     Ok(PreparedSql {
         sql: final_sql,
         limit_injected: needs_limit,
+        limit_clamped,
         class,
     })
 }
@@ -236,6 +238,7 @@ mod tests {
         )
         .unwrap();
         assert!(!p.limit_injected);
+        assert!(p.limit_clamped);
         assert!(p.sql.contains("LIMIT 50"));
         assert!(!p.sql.contains("LIMIT 200"));
     }

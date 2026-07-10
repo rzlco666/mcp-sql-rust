@@ -16,6 +16,8 @@ pub struct ColumnarMeta {
     pub rows_affected: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub limit_injected: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit_clamped: Option<bool>,
 }
 
 impl ColumnarResult {
@@ -28,6 +30,7 @@ impl ColumnarResult {
                 truncated: false,
                 rows_affected: Some(rows_affected),
                 limit_injected: None,
+                limit_clamped: None,
             },
         }
     }
@@ -53,4 +56,28 @@ pub fn truncate_to_bytes(mut result: ColumnarResult, max_bytes: usize) -> Column
 
 pub fn to_json_text(value: &impl Serialize) -> String {
     serde_json::to_string(value).unwrap_or_else(|e| format!(r#"{{"error":"{e}"}}"#))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::Value;
+
+    #[test]
+    fn serializes_limit_clamped_meta() {
+        let result = ColumnarResult {
+            cols: vec!["c".into()],
+            rows: vec![vec![Value::from(1)]],
+            meta: ColumnarMeta {
+                n: 1,
+                truncated: false,
+                rows_affected: None,
+                limit_injected: None,
+                limit_clamped: Some(true),
+            },
+        };
+        let json = serde_json::to_string(&result).unwrap();
+        assert!(json.contains("\"limit_clamped\":true"));
+        assert!(!json.contains("limit_injected"));
+    }
 }

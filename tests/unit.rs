@@ -57,6 +57,8 @@ mod guard_tests {
         )
         .unwrap();
         assert!(p.sql.contains("LIMIT 50"));
+        assert!(p.limit_clamped);
+        assert!(!p.limit_injected);
     }
 }
 
@@ -78,6 +80,7 @@ mod format_tests {
                 truncated: false,
                 rows_affected: None,
                 limit_injected: None,
+                limit_clamped: None,
             },
         };
         let trimmed = truncate_to_bytes(result, 4096);

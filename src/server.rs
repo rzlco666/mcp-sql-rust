@@ -1,6 +1,13 @@
 use std::sync::Arc;
 
 use anyhow::Result;
+use axum::{
+    extract::State,
+    http::StatusCode,
+    response::{IntoResponse, Json},
+    routing::get,
+    Router,
+};
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{
     CallToolResult, ListToolsResult, ServerCapabilities, ServerInfo, Tool,
@@ -12,9 +19,11 @@ use rmcp::transport::stdio;
 use rmcp::{
     tool, tool_handler, tool_router, ErrorData as McpError, ServerHandler, ServiceExt,
 };
+use serde::Serialize;
 use tokio_util::sync::CancellationToken;
 
 use crate::config::AppConfig;
+use crate::db::EngineKind;
 use crate::tools::core::{
     handle_analyze_query, handle_execute_sql, handle_search_objects, AnalyzeQueryParams,
     ExecuteSqlParams, SearchObjectsParams,
@@ -171,9 +180,73 @@ pub async fn run_stdio(config: AppConfig) -> Result<()> {
     Ok(())
 }
 
+#[derive(Clone)]
+struct HttpState {
+    config: Arc<AppConfig>,
+}
+
+#[derive(Serialize)]
+struct HealthSource {
+    name: String,
+    engine: &'static str,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Serialize)]
+struct HealthResponse {
+    status: &'static str,
+    sources: Vec<HealthSource>,
+}
+
+fn engine_label(engine: EngineKind) -> &'static str {
+    match engine {
+        EngineKind::Postgres => "postgres",
+        EngineKind::Mysql => "mysql",
+    }
+}
+
+async fn healthz(State(state): State<HttpState>) -> impl IntoResponse {
+    let mut sources = Vec::new();
+    let mut all_ok = true;
+
+    for source in state.config.sources.values() {
+        match source.pool.ping().await {
+            Ok(()) => sources.push(HealthSource {
+                name: source.name.clone(),
+                engine: engine_label(source.engine),
+                ok: true,
+                error: None,
+            }),
+            Err(e) => {
+                all_ok = false;
+                sources.push(HealthSource {
+                    name: source.name.clone(),
+                    engine: engine_label(source.engine),
+                    ok: false,
+                    error: Some(e.to_string()),
+                });
+            }
+        }
+    }
+
+    let status = if all_ok { "ok" } else { "degraded" };
+    let code = if all_ok {
+        StatusCode::OK
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE
+    };
+
+    (code, Json(HealthResponse { status, sources }))
+}
+
 pub async fn run_http(config: AppConfig, addr: &str) -> Result<()> {
     let ct = CancellationToken::new();
     let cfg = config.clone();
+    let http_state = HttpState {
+        config: Arc::new(config),
+    };
 
     let service = StreamableHttpService::new(
         move || Ok(McpSqlServer::new(cfg.clone())),
@@ -181,9 +254,12 @@ pub async fn run_http(config: AppConfig, addr: &str) -> Result<()> {
         StreamableHttpServerConfig::default().with_cancellation_token(ct.child_token()),
     );
 
-    let router = axum::Router::new().nest_service("/mcp", service);
+    let router = Router::new()
+        .route("/healthz", get(healthz))
+        .nest_service("/mcp", service)
+        .with_state(http_state);
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    tracing::info!("mcp-sql-rust HTTP listening on http://{addr}/mcp");
+    tracing::info!("mcp-sql-rust HTTP listening on http://{addr}/mcp (health: /healthz)");
 
     axum::serve(listener, router)
         .with_graceful_shutdown(async move {

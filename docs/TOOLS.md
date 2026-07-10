@@ -38,6 +38,8 @@ Run SQL or concurrent batch.
 }
 ```
 
+`meta.limit_injected` is set when the guard auto-appends `LIMIT` (no user LIMIT). `meta.limit_clamped` is set when a user-specified LIMIT exceeds `--max-rows` and was reduced.
+
 **Response (batch):**
 
 ```json

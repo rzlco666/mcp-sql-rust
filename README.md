@@ -34,6 +34,21 @@ Existing MCP SQL servers often:
 
 ## Install
 
+### From GitHub Releases (recommended)
+
+Download a pre-built binary for your platform from the [latest release](https://github.com/rzlco666/mcp-sql-rust/releases/latest):
+
+```bash
+# Linux x86_64 example
+curl -LO https://github.com/rzlco666/mcp-sql-rust/releases/latest/download/mcp-sql-rust-x86_64-unknown-linux-gnu.tar.gz
+tar -xzf mcp-sql-rust-x86_64-unknown-linux-gnu.tar.gz
+sudo mv mcp-sql-rust /usr/local/bin/
+```
+
+macOS: download the `mcp-sql-rust-*-apple-darwin` binary from Releases and place it on your `PATH`.
+
+### Build from source
+
 ```bash
 git clone https://github.com/rzlco666/mcp-sql-rust.git
 cd mcp-sql-rust
@@ -73,6 +88,27 @@ mcp-sql-rust --full-tools
 mcp-sql-rust --http 127.0.0.1:8080
 mcp-sql-rust --config ./mcp-sql-rust.toml
 ```
+
+### HTTP mode & production deploy
+
+Streamable HTTP serves MCP at `/mcp`. A health check endpoint is available at `/healthz` (pings all configured database pools; returns `503` if any pool fails).
+
+```bash
+# Local
+mcp-sql-rust --http 127.0.0.1:8080
+
+# Health check
+curl -s http://127.0.0.1:8080/healthz
+```
+
+For production, bind to localhost and terminate TLS at a reverse proxy (Caddy, nginx, etc.):
+
+```
+https://mcp.example.com/mcp   →  http://127.0.0.1:8080/mcp
+https://mcp.example.com/healthz → http://127.0.0.1:8080/healthz
+```
+
+Do not expose the HTTP server directly to the internet without TLS and access controls.
 
 ## Default tools
 

@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use futures::stream::{self, StreamExt};
 use serde::Serialize;
@@ -50,8 +50,15 @@ pub async fn execute_query(
 ) -> Result<QueryResult, ExecError> {
     let engine = pool.engine();
     let prepared = validate_and_prepare(sql, engine, opts.write_mode, opts.max_rows)?;
+    let started = Instant::now();
 
     if prepared.class.requires_writes_for_explain() && !opts.write_mode.allows_dml() {
+        tracing::warn!(
+            duration_ms = started.elapsed().as_millis() as u64,
+            engine = ?engine,
+            error = "explain_analyze_requires_writes",
+            "query failed"
+        );
         return Ok(QueryResult {
             ok: false,
             data: None,
@@ -61,21 +68,54 @@ pub async fn execute_query(
         });
     }
 
-    let result = tokio::time::timeout(opts.timeout, run_sql(pool, &prepared.sql, engine))
+    let result = match tokio::time::timeout(opts.timeout, run_sql(pool, &prepared.sql, engine))
         .await
-        .map_err(|_| ExecError::Other("query timeout".into()))??;
+    {
+        Ok(Ok(columnar)) => {
+            let mut columnar = columnar;
+            if prepared.limit_injected {
+                columnar.meta.limit_injected = Some(true);
+            }
+            if prepared.limit_clamped {
+                columnar.meta.limit_clamped = Some(true);
+            }
+            let columnar = truncate_to_bytes(columnar, opts.max_bytes);
+            tracing::info!(
+                duration_ms = started.elapsed().as_millis() as u64,
+                rows = columnar.meta.n,
+                engine = ?engine,
+                limit_injected = prepared.limit_injected,
+                limit_clamped = prepared.limit_clamped,
+                truncated = columnar.meta.truncated,
+                "query executed"
+            );
+            Ok(QueryResult {
+                ok: true,
+                data: Some(columnar),
+                error: None,
+            })
+        }
+        Ok(Err(e)) => {
+            tracing::warn!(
+                duration_ms = started.elapsed().as_millis() as u64,
+                engine = ?engine,
+                error = %e,
+                "query failed"
+            );
+            Err(e)
+        }
+        Err(_) => {
+            tracing::warn!(
+                duration_ms = started.elapsed().as_millis() as u64,
+                engine = ?engine,
+                error = "query_timeout",
+                "query failed"
+            );
+            Err(ExecError::Other("query timeout".into()))
+        }
+    };
 
-    let mut columnar = result;
-    if prepared.limit_injected {
-        columnar.meta.limit_injected = Some(true);
-    }
-    let columnar = truncate_to_bytes(columnar, opts.max_bytes);
-
-    Ok(QueryResult {
-        ok: true,
-        data: Some(columnar),
-        error: None,
-    })
+    result
 }
 
 pub async fn execute_batch(
@@ -182,6 +222,7 @@ fn pg_rows_to_columnar(rows: &[PgRow]) -> Result<ColumnarResult, ExecError> {
             truncated: false,
             rows_affected: None,
             limit_injected: None,
+            limit_clamped: None,
         },
     })
 }
@@ -215,6 +256,7 @@ fn mysql_rows_to_columnar(rows: &[MySqlRow]) -> Result<ColumnarResult, ExecError
             truncated: false,
             rows_affected: None,
             limit_injected: None,
+            limit_clamped: None,
         },
     })
 }
@@ -228,6 +270,7 @@ fn empty_columnar() -> ColumnarResult {
             truncated: false,
             rows_affected: None,
             limit_injected: None,
+            limit_clamped: None,
         },
     }
 }
