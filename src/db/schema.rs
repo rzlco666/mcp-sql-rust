@@ -3,6 +3,11 @@ use sqlx::{mysql::MySqlRow, postgres::PgRow, MySqlPool, Row};
 
 use crate::db::{EngineKind, EnginePool};
 
+/// MySQL column row layout: `table_schema, table_name, column_name, data_type, is_nullable`.
+const MYSQL_COL_NAME_IDX: usize = 2;
+const MYSQL_COL_TYPE_IDX: usize = 3;
+const MYSQL_COL_NULL_IDX: usize = 4;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum ObjectType {
@@ -287,25 +292,7 @@ async fn list_columns(
                 .await?
             };
             Ok(filter_objects(
-                rows.iter()
-                    .filter_map(|r| {
-                        let sch: String = r.try_get(0).ok()?;
-                        let table: String = r.try_get(1).ok()?;
-                        let name: String = r.try_get(2).ok()?;
-                        let data_type: String = r.try_get(3).ok()?;
-                        let nullable = parse_mysql_is_nullable_row(r, 4);
-                        Some(SchemaObject {
-                            object_type: ObjectType::Column,
-                            schema: Some(sch),
-                            name,
-                            table: Some(table),
-                            data_type: Some(data_type),
-                            nullable: Some(nullable),
-                            columns: None,
-                            indexes: None,
-                        })
-                    })
-                    .collect(),
+                map_mysql_column_rows_to_schema_objects(&rows, None),
                 keyword,
             ))
         }
@@ -318,11 +305,25 @@ pub async fn describe_table(
     table: &str,
 ) -> Result<SchemaObject, sqlx::Error> {
     let engine = pool.engine();
-    let schema = match engine {
-        EngineKind::Postgres => schema.unwrap_or("public").to_string(),
+
+    let (schema, table_name) = match engine {
+        EngineKind::Postgres => (
+            schema.unwrap_or("public").to_string(),
+            table.to_string(),
+        ),
         EngineKind::Mysql => {
             let pool = pool.mysql().expect("mysql");
-            resolve_mysql_schema(pool, schema).await?
+            let (schema_from_table, table_only) = split_mysql_table(table);
+            let table_name = normalize_mysql_ident(table_only);
+            let resolved = resolve_mysql_schema(pool, schema).await?;
+            let schema = if !resolved.is_empty() {
+                normalize_mysql_ident(&resolved)
+            } else {
+                schema_from_table
+                    .map(|s| normalize_mysql_ident(&s))
+                    .unwrap_or_default()
+            };
+            (schema, table_name)
         }
     };
 
@@ -336,7 +337,7 @@ pub async fn describe_table(
                  ORDER BY ordinal_position",
             )
             .bind(&schema)
-            .bind(table)
+            .bind(&table_name)
             .fetch_all(pool)
             .await?;
             rows.iter()
@@ -346,9 +347,9 @@ pub async fn describe_table(
         EngineKind::Mysql => {
             let pool = pool.mysql().expect("mysql");
             let mut columns =
-                mysql_columns_from_information_schema(pool, &schema, table).await?;
+                mysql_columns_from_information_schema(pool, &schema, &table_name).await?;
             if columns.is_empty() {
-                columns = mysql_columns_from_show(pool, &schema, table).await?;
+                columns = mysql_columns_from_show(pool, &schema, &table_name).await?;
             }
             columns
         }
@@ -359,7 +360,7 @@ pub async fn describe_table(
     } else {
         Some(schema.as_str())
     };
-    let indexes = list_indexes(pool, index_schema, Some(table), None)
+    let indexes = list_indexes(pool, index_schema, Some(&table_name), None)
         .await?
         .into_iter()
         .map(|o| IndexInfo {
@@ -379,7 +380,7 @@ pub async fn describe_table(
         } else {
             Some(schema)
         },
-        name: table.to_string(),
+        name: table_name,
         table: None,
         data_type: None,
         nullable: None,
@@ -550,14 +551,119 @@ fn parse_is_nullable(raw: &str) -> bool {
     raw.eq_ignore_ascii_case("YES")
 }
 
+fn normalize_mysql_ident(s: &str) -> String {
+    s.trim().trim_matches('`').to_string()
+}
+
+/// Split `schema.table` or `` `schema`.`table` `` into optional schema + bare table name.
+fn split_mysql_table(table: &str) -> (Option<String>, &str) {
+    let trimmed = table.trim().trim_matches('`');
+    if let Some((schema, table)) = trimmed.rsplit_once('.') {
+        let schema = schema.trim().trim_matches('`');
+        let table = table.trim().trim_matches('`');
+        if !schema.is_empty() && !table.is_empty() {
+            return (Some(schema.to_string()), table);
+        }
+    }
+    (None, trimmed)
+}
+
+fn mysql_decode_text_by_index(row: &MySqlRow, index: usize) -> Option<String> {
+    if let Ok(v) = row.try_get::<String, _>(index) {
+        return Some(v);
+    }
+    if let Ok(v) = row.try_get::<&str, _>(index) {
+        return Some(v.to_string());
+    }
+    if let Ok(v) = row.try_get::<Vec<u8>, _>(index) {
+        return String::from_utf8(v).ok();
+    }
+    None
+}
+
+fn mysql_decode_text_by_name(row: &MySqlRow, name: &str) -> Option<String> {
+    if let Ok(v) = row.try_get::<String, _>(name) {
+        return Some(v);
+    }
+    if let Ok(v) = row.try_get::<&str, _>(name) {
+        return Some(v.to_string());
+    }
+    if let Ok(v) = row.try_get::<Vec<u8>, _>(name) {
+        return String::from_utf8(v).ok();
+    }
+    None
+}
+
 fn parse_mysql_is_nullable_row(row: &MySqlRow, index: usize) -> bool {
-    if let Ok(s) = row.try_get::<String, _>(index) {
-        return parse_is_nullable(&s);
+    mysql_decode_text_by_index(row, index)
+        .is_some_and(|s| parse_is_nullable(&s))
+}
+
+fn column_info_from_mysql_column_row(r: &MySqlRow) -> Option<ColumnInfo> {
+    let name = mysql_decode_text_by_index(r, MYSQL_COL_NAME_IDX)?;
+    let data_type = mysql_decode_text_by_index(r, MYSQL_COL_TYPE_IDX)?;
+    let nullable = parse_mysql_is_nullable_row(r, MYSQL_COL_NULL_IDX);
+    Some(ColumnInfo {
+        name,
+        data_type,
+        nullable,
+    })
+}
+
+fn map_mysql_column_rows_to_schema_objects(
+    rows: &[MySqlRow],
+    context: Option<&str>,
+) -> Vec<SchemaObject> {
+    let mut out = Vec::with_capacity(rows.len());
+    for r in rows {
+        let sch = mysql_decode_text_by_index(r, 0);
+        let table = mysql_decode_text_by_index(r, 1);
+        let name = mysql_decode_text_by_index(r, MYSQL_COL_NAME_IDX);
+        let data_type = mysql_decode_text_by_index(r, MYSQL_COL_TYPE_IDX);
+        if sch.is_none() || table.is_none() || name.is_none() || data_type.is_none() {
+            tracing::warn!(
+                context = context.unwrap_or("mysql_columns"),
+                "skipped information_schema row: decode failed"
+            );
+            continue;
+        }
+        out.push(SchemaObject {
+            object_type: ObjectType::Column,
+            schema: sch,
+            name: name.unwrap(),
+            table,
+            data_type,
+            nullable: Some(parse_mysql_is_nullable_row(r, MYSQL_COL_NULL_IDX)),
+            columns: None,
+            indexes: None,
+        });
     }
-    if let Ok(s) = row.try_get::<&str, _>(index) {
-        return parse_is_nullable(s);
+    if !rows.is_empty() && out.is_empty() {
+        tracing::warn!(
+            context = context.unwrap_or("mysql_columns"),
+            raw_rows = rows.len(),
+            "all information_schema rows failed decode"
+        );
     }
-    false
+    out
+}
+
+fn map_mysql_column_rows_to_column_info(rows: &[MySqlRow], context: &str) -> Vec<ColumnInfo> {
+    let mut out = Vec::with_capacity(rows.len());
+    for r in rows {
+        match column_info_from_mysql_column_row(r) {
+            Some(c) => out.push(c),
+            None => tracing::warn!(context, "skipped column row: decode failed"),
+        }
+    }
+    if !rows.is_empty() && out.is_empty() {
+        tracing::warn!(
+            context,
+            raw_rows = rows.len(),
+            "all column rows failed decode"
+        );
+    }
+    out
 }
 
 fn column_info_from_pg_info_schema_row(r: &PgRow) -> Option<ColumnInfo> {
@@ -571,19 +677,8 @@ fn column_info_from_pg_info_schema_row(r: &PgRow) -> Option<ColumnInfo> {
     })
 }
 
-fn column_info_from_mysql_info_schema_row(r: &MySqlRow) -> Option<ColumnInfo> {
-    let name: String = r.try_get(0).ok()?;
-    let data_type: String = r.try_get(1).ok()?;
-    let nullable = parse_mysql_is_nullable_row(r, 2);
-    Some(ColumnInfo {
-        name,
-        data_type,
-        nullable,
-    })
-}
-
 fn mysql_quote_ident(name: &str) -> String {
-    format!("`{}`", name.replace('`', "``"))
+    format!("`{}`", normalize_mysql_ident(name).replace('`', "``"))
 }
 
 async fn mysql_columns_from_information_schema(
@@ -593,7 +688,7 @@ async fn mysql_columns_from_information_schema(
 ) -> Result<Vec<ColumnInfo>, sqlx::Error> {
     let rows = if schema.is_empty() {
         sqlx::query(
-            "SELECT column_name, data_type, is_nullable \
+            "SELECT table_schema, table_name, column_name, data_type, is_nullable \
              FROM information_schema.columns WHERE table_name = ? \
              ORDER BY ordinal_position",
         )
@@ -602,7 +697,7 @@ async fn mysql_columns_from_information_schema(
         .await?
     } else {
         sqlx::query(
-            "SELECT column_name, data_type, is_nullable \
+            "SELECT table_schema, table_name, column_name, data_type, is_nullable \
              FROM information_schema.columns \
              WHERE table_schema = ? AND table_name = ? \
              ORDER BY ordinal_position",
@@ -612,10 +707,10 @@ async fn mysql_columns_from_information_schema(
         .fetch_all(pool)
         .await?
     };
-    Ok(rows
-        .iter()
-        .filter_map(column_info_from_mysql_info_schema_row)
-        .collect())
+    Ok(map_mysql_column_rows_to_column_info(
+        &rows,
+        "describe_table/information_schema",
+    ))
 }
 
 async fn mysql_columns_from_show(
@@ -633,19 +728,32 @@ async fn mysql_columns_from_show(
         )
     };
     let rows = sqlx::query(&sql).fetch_all(pool).await?;
-    Ok(rows
-        .iter()
-        .filter_map(|r| {
-            let name: String = r.try_get("Field").ok().or_else(|| r.try_get(0).ok())?;
-            let data_type: String = r.try_get("Type").ok().or_else(|| r.try_get(1).ok())?;
-            let null_raw: String = r.try_get("Null").ok().or_else(|| r.try_get(2).ok())?;
-            Some(ColumnInfo {
-                name,
-                data_type,
-                nullable: parse_is_nullable(&null_raw),
-            })
-        })
-        .collect())
+    let mut out = Vec::with_capacity(rows.len());
+    for r in &rows {
+        let name = mysql_decode_text_by_name(r, "Field")
+            .or_else(|| mysql_decode_text_by_index(r, 0));
+        let data_type = mysql_decode_text_by_name(r, "Type")
+            .or_else(|| mysql_decode_text_by_index(r, 1));
+        let null_raw = mysql_decode_text_by_name(r, "Null")
+            .or_else(|| mysql_decode_text_by_index(r, 2));
+        match (name, data_type, null_raw) {
+            (Some(name), Some(data_type), Some(null_raw)) => {
+                out.push(ColumnInfo {
+                    name,
+                    data_type,
+                    nullable: parse_is_nullable(&null_raw),
+                });
+            }
+            _ => tracing::warn!("describe_table/show: skipped row decode failed"),
+        }
+    }
+    if !rows.is_empty() && out.is_empty() {
+        tracing::warn!(
+            raw_rows = rows.len(),
+            "describe_table/show: all rows failed decode"
+        );
+    }
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -664,5 +772,23 @@ mod tests {
     fn mysql_quote_ident_escapes_backticks() {
         assert_eq!(mysql_quote_ident("fw_users"), "`fw_users`");
         assert_eq!(mysql_quote_ident("a`b"), "`a``b`");
+    }
+
+    #[test]
+    fn normalize_mysql_ident_strips_backticks_and_whitespace() {
+        assert_eq!(normalize_mysql_ident("  `fw_users`  "), "fw_users");
+    }
+
+    #[test]
+    fn split_mysql_table_handles_qualified_names() {
+        let (schema, table) = split_mysql_table("hris_ksei_prod_5.fw_users");
+        assert_eq!(schema.as_deref(), Some("hris_ksei_prod_5"));
+        assert_eq!(table, "fw_users");
+        let (schema, table) = split_mysql_table("`db`.`tbl`");
+        assert_eq!(schema.as_deref(), Some("db"));
+        assert_eq!(table, "tbl");
+        let (schema, table) = split_mysql_table("fw_users");
+        assert!(schema.is_none());
+        assert_eq!(table, "fw_users");
     }
 }

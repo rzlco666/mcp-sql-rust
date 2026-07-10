@@ -223,10 +223,13 @@ fn walk_mysql_block(block: &Value, nodes: &mut Vec<PlanNode>, _warnings: &mut Ve
             .get("table_name")
             .and_then(|v| v.as_str())
             .map(str::to_string);
-        let rows = table.get("rows_examined_per_scan").and_then(|v| v.as_i64());
+        let rows = table
+            .get("rows_examined_per_scan")
+            .or_else(|| table.get("rows"))
+            .and_then(|v| v.as_i64());
         let cost = table
             .get("cost_info")
-            .and_then(|c| c.get("read_cost"))
+            .and_then(|c| c.get("read_cost").or_else(|| c.get("prefix_cost")))
             .and_then(|v| v.as_f64());
         let filter = table
             .get("attached_condition")
@@ -248,10 +251,19 @@ fn walk_mysql_block(block: &Value, nodes: &mut Vec<PlanNode>, _warnings: &mut Ve
         });
     }
 
-    if let Some(nested) = block.get("nested_loop") {
-        if let Some(arr) = nested.as_array() {
-            for item in arr {
-                walk_mysql_block(item, nodes, _warnings);
+    for key in [
+        "nested_loop",
+        "grouping_operation",
+        "ordering_operation",
+        "table",
+    ] {
+        if let Some(nested) = block.get(key) {
+            if let Some(arr) = nested.as_array() {
+                for item in arr {
+                    walk_mysql_block(item, nodes, _warnings);
+                }
+            } else if nested.is_object() && key != "table" {
+                walk_mysql_block(nested, nodes, _warnings);
             }
         }
     }

@@ -1,6 +1,8 @@
 mod classify;
 
-use sqlparser::ast::Statement;
+use sqlparser::ast::{
+    Expr, LimitClause, Query, Statement, Value,
+};
 use sqlparser::dialect::{Dialect, MySqlDialect, PostgreSqlDialect};
 use sqlparser::parser::Parser;
 
@@ -45,8 +47,8 @@ pub fn validate_and_prepare(
         ));
     }
 
-    let stmt = &statements[0];
-    let class = classify::classify(stmt)?;
+    let stmt = statements.into_iter().next().expect("checked len");
+    let class = classify::classify(&stmt)?;
 
     if class.requires_writes_for_explain() && !write_mode.allows_dml() {
         return Err(GuardError::Denied(
@@ -54,7 +56,7 @@ pub fn validate_and_prepare(
         ));
     }
 
-    if let sqlparser::ast::Statement::Explain { statement: inner, .. } = stmt {
+    if let Statement::Explain { statement: inner, .. } = &stmt {
         let inner_class = classify::classify(inner)?;
         enforce_write_mode(&inner_class, write_mode)?;
     }
@@ -62,11 +64,16 @@ pub fn validate_and_prepare(
     enforce_write_mode(&class, write_mode)?;
 
     let needs_limit = class.is_select_like()
-        && matches!(stmt, Statement::Query(q) if q.limit_clause.is_none() && q.fetch.is_none());
+        && matches!(&stmt, Statement::Query(q) if q.limit_clause.is_none() && q.fetch.is_none());
 
     let trimmed = strip_trailing_semicolons(sql);
+    let mut stmt = stmt;
+    let limit_clamped = clamp_query_limit(&mut stmt, default_limit);
+
     let final_sql = if needs_limit {
         format!("{trimmed} LIMIT {default_limit}")
+    } else if limit_clamped {
+        stmt.to_string()
     } else {
         trimmed.to_string()
     };
@@ -105,6 +112,60 @@ fn strip_trailing_semicolons(sql: &str) -> &str {
         s = rest.trim_end();
     }
     s
+}
+
+fn expr_as_limit(expr: &Expr) -> Option<u64> {
+    match expr {
+        Expr::Value(v) => match &v.value {
+            Value::Number(n, _) => n.parse().ok(),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+fn query_limit_value(q: &Query) -> Option<u64> {
+    match &q.limit_clause {
+        Some(LimitClause::LimitOffset {
+            limit: Some(expr), ..
+        }) => expr_as_limit(expr),
+        Some(LimitClause::OffsetCommaLimit { limit, .. }) => expr_as_limit(limit),
+        _ => None,
+    }
+}
+
+fn set_query_limit(q: &mut Query, max_rows: u32) {
+    let limit_expr = Expr::value(Value::Number(max_rows.to_string(), false));
+    match &mut q.limit_clause {
+        Some(LimitClause::LimitOffset { limit, .. }) => {
+            *limit = Some(limit_expr);
+        }
+        Some(LimitClause::OffsetCommaLimit { limit, .. }) => {
+            *limit = limit_expr;
+        }
+        None => {
+            q.limit_clause = Some(LimitClause::LimitOffset {
+                limit: Some(limit_expr),
+                offset: None,
+                limit_by: vec![],
+            });
+        }
+    }
+}
+
+/// Returns true when an explicit LIMIT was reduced to `max_rows`.
+fn clamp_query_limit(stmt: &mut Statement, max_rows: u32) -> bool {
+    let Statement::Query(q) = stmt else {
+        return false;
+    };
+    let Some(current) = query_limit_value(q) else {
+        return false;
+    };
+    if current <= max_rows as u64 {
+        return false;
+    }
+    set_query_limit(q, max_rows);
+    true
 }
 
 #[cfg(test)]
@@ -163,5 +224,19 @@ mod tests {
         )
         .unwrap_err();
         assert!(err.to_string().contains("multiple statements"));
+    }
+
+    #[test]
+    fn clamps_explicit_limit_above_max_rows() {
+        let p = validate_and_prepare(
+            "SELECT * FROM users LIMIT 200",
+            EngineKind::Postgres,
+            WriteMode::ReadOnly,
+            50,
+        )
+        .unwrap();
+        assert!(!p.limit_injected);
+        assert!(p.sql.contains("LIMIT 50"));
+        assert!(!p.sql.contains("LIMIT 200"));
     }
 }

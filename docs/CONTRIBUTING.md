@@ -7,6 +7,16 @@
 3. `cargo test` and `cargo build --release`
 4. Optional MySQL integration tests: `MYSQL_DATABASE_URL=mysql://... cargo test --test mysql_integration -- --ignored`
 
+### Local AI agent setup (optional)
+
+Agent workflow files (`AGENTS.md`, `opencode.json`, OMNI/CodeGraph docs) are **local-only** (gitignored). After clone:
+
+```bash
+./scripts/setup-agent-dev.sh
+```
+
+Templates live in [`docs/templates/agent/`](templates/agent/).
+
 ## Commit style
 
 Conventional Commits preferred:
