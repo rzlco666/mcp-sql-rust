@@ -28,7 +28,7 @@
     {
       "registryType": "mcpb",
       "identifier": "https://github.com/rzlco666/mcp-sql-rust/releases/download/v0.4.0/mcp-sql-rust-aarch64-apple-darwin.mcpb",
-      "fileSha256": "PLACEHOLDER_UPDATE_ON_RELEASE",
+      "fileSha256": "8da31c6420b8c06e5849aefb76fd0319712c2995b2789684e1720c4b058d6326",
       "transport": {
         "type": "stdio"
       },

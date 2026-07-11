@@ -26,6 +26,6 @@ Installers:
       - RelativeFilePath: mcp-sql-rust.exe
         PortableCommandAlias: mcp-sql-rust
     InstallerUrl: https://github.com/rzlco666/mcp-sql-rust/releases/download/v0.4.0/mcp-sql-rust-x86_64-pc-windows-msvc.zip
-    InstallerSha256: REPLACE_ME_WINDOWS_ZIP_SHA256
+    InstallerSha256: e4965a15bf48edfd030951f0796f5db7b41e09fe0f098afc191bddb2c5318348
 ManifestType: singleton
 ManifestVersion: 1.6.0

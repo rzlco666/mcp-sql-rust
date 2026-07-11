@@ -6,7 +6,7 @@
   "architecture": {
     "64bit": {
       "url": "https://github.com/rzlco666/mcp-sql-rust/releases/download/v0.4.0/mcp-sql-rust-x86_64-pc-windows-msvc.zip",
-      "hash": "REPLACE_ME_WINDOWS_ZIP_SHA256"
+      "hash": "e4965a15bf48edfd030951f0796f5db7b41e09fe0f098afc191bddb2c5318348"
     }
   },
   "bin": "mcp-sql-rust.exe",
@@ -16,7 +16,7 @@
   "autoupdate": {
     "architecture": {
       "64bit": {
-        "url": "https://github.com/rzlco666/mcp-sql-rust/releases/download/v$version/mcp-sql-rust-x86_64-pc-windows-msvc.zip"
+        "url": "https://github.com/rzlco666/mcp-sql-rust/releases/download/v0.4.0/mcp-sql-rust-x86_64-pc-windows-msvc.zip"
       }
     }
   }
