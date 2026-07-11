@@ -58,24 +58,27 @@ jobs:
             cargo build --release --target ${{ matrix.target }}
           fi
 
-      - name: Package binary
+      - name: Package binary (Unix)
+        if: matrix.os != 'windows-latest'
         shell: bash
         run: |
           mkdir -p dist mcpb-pack
-          VERSION="${GITHUB_REF_NAME#v}"
-          if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            BIN="target/${{ matrix.target }}/release/mcp-sql-rust.exe"
-            cp "$BIN" "dist/mcp-sql-rust.exe"
-            (cd dist && zip "../dist/${{ matrix.artifact }}.zip" mcp-sql-rust.exe)
-            rm "dist/mcp-sql-rust.exe"
-          else
-            BIN="target/${{ matrix.target }}/release/mcp-sql-rust"
-            cp "$BIN" mcpb-pack/mcp-sql-rust
-            cp mcpb/manifest.json mcpb-pack/manifest.json
-            cp "$BIN" "dist/mcp-sql-rust"
-            tar -czf "dist/${{ matrix.artifact }}.tar.gz" -C dist mcp-sql-rust
-            rm "dist/mcp-sql-rust"
-          fi
+          BIN="target/${{ matrix.target }}/release/mcp-sql-rust"
+          cp "$BIN" mcpb-pack/mcp-sql-rust
+          cp mcpb/manifest.json mcpb-pack/manifest.json
+          cp "$BIN" "dist/mcp-sql-rust"
+          tar -czf "dist/${{ matrix.artifact }}.tar.gz" -C dist mcp-sql-rust
+          rm "dist/mcp-sql-rust"
+
+      - name: Package binary (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          $bin = "target/${{ matrix.target }}/release/mcp-sql-rust.exe"
+          Copy-Item $bin "dist/mcp-sql-rust.exe"
+          Compress-Archive -Path "dist/mcp-sql-rust.exe" -DestinationPath "dist/${{ matrix.artifact }}.zip" -Force
+          Remove-Item "dist/mcp-sql-rust.exe"
 
       - uses: actions/setup-node@v4
         if: matrix.os != 'windows-latest'
