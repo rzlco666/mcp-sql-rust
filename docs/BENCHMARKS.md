@@ -73,3 +73,31 @@ Requirements: Node.js 20+ (`npx`), Linux recommended for RSS.
 | Date | Change |
 |------|--------|
 | v0.4.0 | Initial harness + WSL2 reference numbers |
+
+## MySQL localhost (v0.4.0 reference)
+
+Manual HTTP benchmark on **WSL2**, MySQL 8.4 via `docker compose` (`localhost:3307`), seed [`docker/seed/mysql.sql`](../docker/seed/mysql.sql). Method: Streamable HTTP `execute_sql` / tool handlers, release binary.
+
+| Metric | v0.1.0 | v0.4.0 |
+|--------|--------|--------|
+| Single SELECT avg | 14.5 ms | **6.5 ms** |
+| P50 latency | — | 6.4 ms |
+| P95 latency | — | 7.4 ms |
+| P99 latency | — | 7.8 ms |
+| Batch 4 queries | — | 8 ms |
+| Batch 8 queries | — | 8 ms |
+| Batch 16 queries | 31 ms | **10 ms** |
+| 10× concurrent `SLEEP(0.2)` | — | 238 ms (≈8× speedup) |
+| `describe_table` 80 cols | — | 11 ms |
+| `search_objects` 200 tables | 109 ms | **13 ms** |
+| Response 100 rows (`pegawai`) | — | 67 KB (~674 B/row) |
+
+> These numbers measure end-to-end MCP + MySQL round-trip on one machine. They are **not** comparable 1:1 with the PostgreSQL rival harness above (different DB, transport path, and query mix).
+
+Reproduce MySQL timings:
+
+```bash
+docker compose up -d mysql
+cargo build --release
+./scripts/benchmark/run-mysql.sh
+```

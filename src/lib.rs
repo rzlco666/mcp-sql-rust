@@ -6,4 +6,4 @@ pub mod server;
 pub mod tools;
 
 pub use config::{AppConfig, WriteMode};
-pub use server::McpSqlServer;
+pub use server::{build_http_router, McpSqlServer};

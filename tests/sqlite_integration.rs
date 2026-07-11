@@ -179,7 +179,7 @@ async fn sqlite_execute_sql_pagination() {
     let data1 = page1.data.expect("page1 data");
     assert_eq!(data1.rows.len(), 50);
     assert_eq!(data1.meta.has_more, Some(true));
-    assert_eq!(data1.meta.total_fetched, Some(100));
+    assert_eq!(data1.meta.total_fetched, Some(51));
 
     read_opts.page_offset = 50;
     let page2 = execute_query(
@@ -192,5 +192,20 @@ async fn sqlite_execute_sql_pagination() {
     .expect("page 2");
     let data2 = page2.data.expect("page2 data");
     assert_eq!(data2.rows.len(), 50);
-    assert_eq!(data2.meta.has_more, Some(false));
+    assert_eq!(data2.meta.has_more, Some(true));
+    assert_eq!(data2.meta.total_fetched, Some(100));
+
+    read_opts.page_offset = 100;
+    let page3 = execute_query(
+        &pool,
+        "SELECT id FROM pages ORDER BY id",
+        &[],
+        &read_opts,
+    )
+    .await
+    .expect("page 3");
+    let data3 = page3.data.expect("page3 data");
+    assert_eq!(data3.rows.len(), 50);
+    assert_eq!(data3.meta.has_more, Some(false));
+    assert_eq!(data3.meta.total_fetched, Some(50));
 }

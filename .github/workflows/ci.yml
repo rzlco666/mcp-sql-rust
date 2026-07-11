@@ -27,6 +27,71 @@ jobs:
       - name: cargo build --release
         run: cargo build --release
 
+  integration-http-docker:
+    name: HTTP Integration (PG + MySQL)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: demo
+          POSTGRES_PASSWORD: demo
+          POSTGRES_DB: demo
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U demo -d demo"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: demo
+          MYSQL_USER: demo
+          MYSQL_PASSWORD: demo
+        ports:
+          - 3307:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -uroot -proot"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 15
+          --health-start-period 30s
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Seed PostgreSQL
+        env:
+          PGPASSWORD: demo
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client > /dev/null
+          for i in $(seq 1 30); do
+            psql "postgresql://demo:demo@localhost:5433/demo" -c "SELECT 1" && break
+            sleep 2
+          done
+          psql "postgresql://demo:demo@localhost:5433/demo" -f docker/seed/postgres.sql
+
+      - name: Seed MySQL
+        run: |
+          sudo apt-get install -y -qq default-mysql-client > /dev/null
+          for i in $(seq 1 30); do
+            mysql -h 127.0.0.1 -P 3307 -uroot -proot -e "SELECT 1" && break
+            sleep 2
+          done
+          mysql -h 127.0.0.1 -P 3307 -uroot -proot demo < docker/seed/mysql.sql
+
+      - name: HTTP integration tests (PG + MySQL)
+        env:
+          POSTGRES_DATABASE_URL: postgresql://demo:demo@localhost:5433/demo
+          MYSQL_DATABASE_URL: mysql://demo:demo@127.0.0.1:3307/demo
+        run: cargo test --test http_integration -- --ignored
+
   integration-mysql:
     name: MySQL Integration (optional)
     runs-on: ubuntu-latest

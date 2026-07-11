@@ -181,7 +181,7 @@ pub async fn run_stdio(config: AppConfig) -> Result<()> {
 }
 
 #[derive(Clone)]
-struct HttpState {
+pub struct HttpState {
     config: Arc<AppConfig>,
 }
 
@@ -242,7 +242,7 @@ async fn healthz(State(state): State<HttpState>) -> impl IntoResponse {
     (code, Json(HealthResponse { status, sources }))
 }
 
-pub async fn run_http(config: AppConfig, addr: &str) -> Result<()> {
+pub fn build_http_router(config: AppConfig) -> (Router, CancellationToken) {
     let ct = CancellationToken::new();
     let cfg = config.clone();
     let http_state = HttpState {
@@ -259,6 +259,12 @@ pub async fn run_http(config: AppConfig, addr: &str) -> Result<()> {
         .route("/healthz", get(healthz))
         .nest_service("/mcp", service)
         .with_state(http_state);
+
+    (router, ct)
+}
+
+pub async fn run_http(config: AppConfig, addr: &str) -> Result<()> {
+    let (router, ct) = build_http_router(config);
     let listener = tokio::net::TcpListener::bind(addr).await?;
     tracing::info!("mcp-sql-rust HTTP listening on http://{addr}/mcp (health: /healthz)");
 

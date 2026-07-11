@@ -10,7 +10,7 @@ use crate::db::bind::{bind_mysql_params, bind_pg_params, bind_sqlite_params};
 use crate::db::{EngineKind, EnginePool};
 use crate::format::{truncate_to_bytes, ColumnarMeta, ColumnarResult};
 use crate::guard::{
-    validate_and_prepare, GuardError,
+    validate_and_prepare_with_options, GuardError, PrepareOptions,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -55,7 +55,17 @@ pub async fn execute_query(
     opts: &ExecOptions,
 ) -> Result<QueryResult, ExecError> {
     let engine = pool.engine();
-    let prepared = validate_and_prepare(sql, params, engine, opts.write_mode, opts.max_rows)?;
+    let prepared = validate_and_prepare_with_options(
+        sql,
+        params,
+        engine,
+        opts.write_mode,
+        opts.max_rows,
+        PrepareOptions {
+            page_offset: opts.page_offset,
+            page_size: opts.page_size,
+        },
+    )?;
     let started = Instant::now();
 
     if prepared.class.requires_writes_for_explain() && !opts.write_mode.allows_dml() {
@@ -87,9 +97,23 @@ pub async fn execute_query(
             if prepared.limit_clamped {
                 columnar.meta.limit_clamped = Some(true);
             }
-            let page_size = opts.page_size.unwrap_or(opts.max_rows as usize);
-            if opts.page_offset > 0 || opts.page_size.is_some() {
-                columnar.apply_pagination(opts.page_offset, page_size);
+            if prepared.server_pagination {
+                let page_size = prepared.page_size as usize;
+                let fetched = columnar.rows.len();
+                let has_more = fetched > page_size;
+                if has_more {
+                    columnar.rows.truncate(page_size);
+                }
+                columnar.meta.n = columnar.rows.len();
+                columnar.meta.page_offset = Some(opts.page_offset);
+                columnar.meta.page_size = Some(page_size);
+                columnar.meta.total_fetched = Some(fetched);
+                columnar.meta.has_more = Some(has_more);
+            } else {
+                let page_size = opts.page_size.unwrap_or(opts.max_rows as usize);
+                if opts.page_offset > 0 || opts.page_size.is_some() {
+                    columnar.apply_pagination(opts.page_offset, page_size);
+                }
             }
             let columnar = truncate_to_bytes(columnar, opts.max_bytes);
             tracing::info!(

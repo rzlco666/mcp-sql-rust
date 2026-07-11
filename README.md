@@ -112,6 +112,7 @@ See [docs/TOOLS.md](docs/TOOLS.md).
 | [docs/QUICKSTART.md](docs/QUICKSTART.md) | 60-second setup + devcontainer |
 | [docs/INSTALL.md](docs/INSTALL.md) | All install channels |
 | [docs/BENCHMARKS.md](docs/BENCHMARKS.md) | Performance vs rivals |
+| [docs/TEST_REPORT.md](docs/TEST_REPORT.md) | v0.4.0 test matrix & audit |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Modules & data flow |
 | [docs/TOOLS.md](docs/TOOLS.md) | Tool schemas |
 | [docs/SECURITY.md](docs/SECURITY.md) | Guard & write tiers |

@@ -3,7 +3,7 @@ mod params;
 
 use serde_json::Value;
 use sqlparser::ast::{
-    Expr, LimitClause, Query, Statement, Value as SqlValue,
+    Expr, LimitClause, Offset, OffsetRows, Query, Statement, Value as SqlValue,
 };
 use sqlparser::dialect::{Dialect, MySqlDialect, PostgreSqlDialect, SQLiteDialect};
 use sqlparser::parser::Parser;
@@ -17,6 +17,12 @@ pub use params::{
     validate_param_count,
 };
 
+#[derive(Debug, Clone, Default)]
+pub struct PrepareOptions {
+    pub page_offset: usize,
+    pub page_size: Option<usize>,
+}
+
 #[derive(Debug, Clone)]
 pub struct PreparedSql {
     pub sql: String,
@@ -24,6 +30,8 @@ pub struct PreparedSql {
     pub limit_injected: bool,
     pub limit_clamped: bool,
     pub class: StmtClass,
+    pub server_pagination: bool,
+    pub page_size: u32,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -38,6 +46,24 @@ pub fn validate_and_prepare(
     engine: EngineKind,
     write_mode: WriteMode,
     default_limit: u32,
+) -> Result<PreparedSql, GuardError> {
+    validate_and_prepare_with_options(
+        sql,
+        query_params,
+        engine,
+        write_mode,
+        default_limit,
+        PrepareOptions::default(),
+    )
+}
+
+pub fn validate_and_prepare_with_options(
+    sql: &str,
+    query_params: &[Value],
+    engine: EngineKind,
+    write_mode: WriteMode,
+    default_limit: u32,
+    prepare_opts: PrepareOptions,
 ) -> Result<PreparedSql, GuardError> {
     validate_param_count(sql, query_params, engine)?;
 
@@ -76,19 +102,44 @@ pub fn validate_and_prepare(
 
     enforce_write_mode(&class, write_mode)?;
 
+    let wants_pagination =
+        prepare_opts.page_offset > 0 || prepare_opts.page_size.is_some();
+    let page_size = prepare_opts.page_size.unwrap_or(default_limit as usize) as u32;
+
     let needs_limit = class.is_select_like()
+        && !wants_pagination
         && matches!(&stmt, Statement::Query(q) if q.limit_clause.is_none() && q.fetch.is_none());
 
     let trimmed = strip_trailing_semicolons(&normalized);
     let mut stmt = stmt;
-    let limit_clamped = clamp_query_limit(&mut stmt, default_limit);
-
-    let final_sql = if needs_limit {
-        format!("{trimmed} LIMIT {default_limit}")
-    } else if limit_clamped {
-        stmt.to_string()
+    let limit_clamped = if wants_pagination {
+        false
     } else {
-        trimmed.to_string()
+        clamp_query_limit(&mut stmt, default_limit)
+    };
+
+    let (final_sql, server_pagination) = if wants_pagination {
+        if let Statement::Query(q) = &mut stmt {
+            if !class.is_select_like() {
+                return Err(GuardError::Denied(
+                    "page_offset/page_size only supported on SELECT queries".into(),
+                ));
+            }
+            let offset = prepare_opts.page_offset as u64;
+            let fetch_limit = offset + page_size as u64 + 1;
+            set_query_offset_limit(q, offset, fetch_limit);
+            (stmt.to_string(), true)
+        } else {
+            return Err(GuardError::Denied(
+                "page_offset/page_size only supported on SELECT queries".into(),
+            ));
+        }
+    } else if needs_limit {
+        (format!("{trimmed} LIMIT {default_limit}"), false)
+    } else if limit_clamped {
+        (stmt.to_string(), false)
+    } else {
+        (trimmed.to_string(), false)
     };
 
     validate_param_count(&final_sql, query_params, engine)?;
@@ -99,6 +150,8 @@ pub fn validate_and_prepare(
         limit_injected: needs_limit,
         limit_clamped,
         class,
+        server_pagination,
+        page_size,
     })
 }
 
@@ -177,6 +230,19 @@ fn set_query_limit(q: &mut Query, max_rows: u32) {
             });
         }
     }
+}
+
+fn set_query_offset_limit(q: &mut Query, offset: u64, limit: u64) {
+    let limit_expr = Expr::value(SqlValue::Number(limit.to_string(), false));
+    let offset_expr = Offset {
+        value: Expr::value(SqlValue::Number(offset.to_string(), false)),
+        rows: OffsetRows::None,
+    };
+    q.limit_clause = Some(LimitClause::LimitOffset {
+        limit: Some(limit_expr),
+        offset: Some(offset_expr),
+        limit_by: vec![],
+    });
 }
 
 /// Returns true when an explicit LIMIT was reduced to `max_rows`.
@@ -296,6 +362,25 @@ mod tests {
             100,
         )
         .unwrap();
+    }
+
+    #[test]
+    fn server_pagination_injects_offset_limit() {
+        let p = validate_and_prepare_with_options(
+            "SELECT id FROM pages ORDER BY id",
+            &[],
+            EngineKind::Sqlite,
+            WriteMode::ReadOnly,
+            100,
+            PrepareOptions {
+                page_offset: 50,
+                page_size: Some(25),
+            },
+        )
+        .unwrap();
+        assert!(p.server_pagination);
+        assert!(p.sql.contains("OFFSET 50"));
+        assert!(p.sql.contains("LIMIT 76"));
     }
 
     #[test]

@@ -70,6 +70,14 @@ bigdecimal = { version = "0.4", features = ["serde"] }
 [dev-dependencies]
 tempfile = "3"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+tower = { version = "0.5", features = ["util"] }
+sqlx = { version = "0.8", default-features = false, features = [
+    "runtime-tokio-rustls",
+    "postgres",
+    "mysql",
+    "sqlite",
+    "json",
+] }
 
 [profile.release]
 lto = "thin"
