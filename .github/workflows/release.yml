@@ -61,20 +61,20 @@ jobs:
       - name: Package binary
         shell: bash
         run: |
-          mkdir -p dist
+          mkdir -p dist mcpb-pack
+          VERSION="${GITHUB_REF_NAME#v}"
           if [ "${{ matrix.os }}" = "windows-latest" ]; then
             BIN="target/${{ matrix.target }}/release/mcp-sql-rust.exe"
-            cp "$BIN" "dist/${{ matrix.artifact }}.exe"
+            cp "$BIN" "dist/mcp-sql-rust.exe"
+            (cd dist && zip "../dist/${{ matrix.artifact }}.zip" mcp-sql-rust.exe)
+            rm "dist/mcp-sql-rust.exe"
           else
-            mkdir -p mcpb-pack
             BIN="target/${{ matrix.target }}/release/mcp-sql-rust"
             cp "$BIN" mcpb-pack/mcp-sql-rust
             cp mcpb/manifest.json mcpb-pack/manifest.json
-            if [ "${{ matrix.os }}" = "macos-latest" ]; then
-              cp "$BIN" "dist/${{ matrix.artifact }}"
-            else
-              tar -czf "dist/${{ matrix.artifact }}.tar.gz" -C "target/${{ matrix.target }}/release" mcp-sql-rust
-            fi
+            cp "$BIN" "dist/mcp-sql-rust"
+            tar -czf "dist/${{ matrix.artifact }}.tar.gz" -C dist mcp-sql-rust
+            rm "dist/mcp-sql-rust"
           fi
 
       - uses: actions/setup-node@v4
@@ -105,6 +105,12 @@ jobs:
         with:
           path: dist
           merge-multiple: true
+
+      - name: Generate SHA256SUMS
+        run: |
+          cd dist
+          sha256sum * > SHA256SUMS
+          cat SHA256SUMS
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

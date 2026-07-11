@@ -1,0 +1,14 @@
+target/
+.codegraph/
+.git/
+.omni/
+.cursor/
+.devcontainer/
+docker/
+docs/
+packaging/
+scripts/
+tests/
+*.md
+.env
+.env.*

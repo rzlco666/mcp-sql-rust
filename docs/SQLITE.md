@@ -1,25 +1,23 @@
 # SQLite — mcp-sql-rust
 
-SQLite is supported as a third engine alongside PostgreSQL and MySQL (v0.2.0+).
+SQLite is supported as a third engine alongside PostgreSQL and MySQL.
 
 ## Connection URLs
 
 | URL | Use case |
 |-----|----------|
-| `sqlite::memory:` | Ephemeral in-memory database (tests, scratch) |
-| `sqlite://./path/to/app.db` | File database (relative path) |
-| `sqlite:/absolute/path/to/app.db` | File database (absolute path) |
-| `sqlite:file:./data.db` | Alternate file URI form |
+| `sqlite::memory:` | Ephemeral in-memory (tests, scratch) |
+| `sqlite://./path/to/app.db` | File database (relative) |
+| `sqlite:/absolute/path/to/app.db` | File database (absolute) |
 
 Environment variables:
 
 ```env
 DATABASE_URL=sqlite::memory:
-# or
 SQLITE_URL=sqlite://./data/app.db
 ```
 
-TOML source hint:
+TOML:
 
 ```toml
 [[sources]]
@@ -30,31 +28,47 @@ engine = "sqlite"
 
 ## Read-only mode
 
-Default **read-only** appends `?mode=ro` to the SQLite URL when connecting (sqlx-supported). Writes require `--allow-writes`; DDL requires `--allow-ddl`.
+Default **read-only** appends `?mode=ro` when connecting. Writes need `--allow-writes`; DDL needs `--allow-ddl`.
 
 ## Placeholders
 
-SQLite uses `?` placeholders (same as MySQL). PostgreSQL `$N` placeholders are rejected on SQLite sources.
+SQLite uses `?` placeholders. PostgreSQL `$N` placeholders are rejected on SQLite sources.
 
-## Schema tools
+## Schema tools (PRAGMA-based)
 
-| Tool / path | SQLite implementation |
-|-------------|----------------------|
-| `list_schemas` | `PRAGMA database_list` (`main` + attached DBs) |
-| `list_tables` | `sqlite_master` (default schema `main`) |
-| `describe_table` | `PRAGMA table_info(?)` + `PRAGMA index_list` |
-| `search_objects` | Same paths via `schema.rs` |
+| Tool / path | Implementation |
+|-------------|----------------|
+| `list_schemas` | `PRAGMA database_list` |
+| `list_tables` | `sqlite_master` (default `main`) |
+| `describe_table` | `PRAGMA table_info('table')` + `PRAGMA index_list('table')` |
+| `list_indexes` | `PRAGMA index_list` / `index_info` |
+| `search_objects` | Same via `schema.rs` |
 
-Qualified names `attached.table` are supported when the attached database exists.
+**Note:** SQLite `PRAGMA` table names are embedded as quoted literals (not `?` bind params) — required by SQLite semantics.
+
+Qualified names `attached.table` work when the attached DB exists.
 
 ## EXPLAIN
 
-`analyze_query_performance` runs `EXPLAIN QUERY PLAN` and maps text `detail` rows into the shared `ExplainSummary` format. There is no JSON plan like PostgreSQL/MySQL.
+`analyze_query_performance` runs `EXPLAIN QUERY PLAN` and maps `detail` rows into `ExplainSummary`. Supports optional `params`.
 
-## Limitations (v0.2.0)
+No JSON plan like PostgreSQL/MySQL.
 
-- No `SHOW PROCESSLIST` or server session diagnostics
-- Attached-database coverage is best-effort (default `main`)
-- Result streaming is not implemented (columnar JSON only)
+## AST guard
 
-See also [CONFIGURATION.md](CONFIGURATION.md) and [SECURITY.md](SECURITY.md).
+Uses `SQLiteDialect` in `sqlparser`. Same write tiers as other engines.
+
+## Limitations
+
+- No server session diagnostics (`SHOW PROCESSLIST` equivalent)
+- Attached-database coverage is best-effort
+- Columnar JSON only (no streaming)
+- Compose dev stack focuses on PG+MySQL; SQLite needs no Docker
+
+## Tests
+
+```bash
+cargo test --test sqlite_integration
+```
+
+See [CONFIGURATION.md](CONFIGURATION.md) and [SECURITY.md](SECURITY.md).

@@ -36,7 +36,7 @@ impl WriteMode {
 }
 
 #[derive(Debug, Parser)]
-#[command(name = "mcp-sql-rust", about = "Token-efficient MCP server for MySQL, PostgreSQL, and SQLite")]
+#[command(name = "mcp-sql-rust", version, about = "Token-efficient MCP server for MySQL, PostgreSQL, and SQLite")]
 pub struct Cli {
     /// Database connection URL (overrides .env discovery).
     #[arg(long)]

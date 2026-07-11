@@ -6,12 +6,12 @@
     "url": "https://github.com/rzlco666/mcp-sql-rust",
     "source": "github"
   },
-  "version": "0.3.0",
+  "version": "0.4.0",
   "packages": [
     {
       "registryType": "mcpb",
-      "identifier": "https://github.com/rzlco666/mcp-sql-rust/releases/download/v0.3.0/mcp-sql-rust-x86_64-unknown-linux-gnu.mcpb",
-      "fileSha256": "6cd05fc0d8559ca30c29eab1c94aeebb9541bea2a5346af50247708203a45f45",
+      "identifier": "https://github.com/rzlco666/mcp-sql-rust/releases/download/v0.4.0/mcp-sql-rust-x86_64-unknown-linux-gnu.mcpb",
+      "fileSha256": "PLACEHOLDER_UPDATE_ON_RELEASE",
       "transport": {
         "type": "stdio"
       },
@@ -27,8 +27,8 @@
     },
     {
       "registryType": "mcpb",
-      "identifier": "https://github.com/rzlco666/mcp-sql-rust/releases/download/v0.3.0/mcp-sql-rust-aarch64-apple-darwin.mcpb",
-      "fileSha256": "3c326bdb8c9af30f08e216212aed10d2507acd066d18020470877e67e5b9c160",
+      "identifier": "https://github.com/rzlco666/mcp-sql-rust/releases/download/v0.4.0/mcp-sql-rust-aarch64-apple-darwin.mcpb",
+      "fileSha256": "PLACEHOLDER_UPDATE_ON_RELEASE",
       "transport": {
         "type": "stdio"
       },
@@ -44,8 +44,8 @@
     },
     {
       "registryType": "mcpb",
-      "identifier": "https://github.com/rzlco666/mcp-sql-rust/releases/download/v0.3.0/mcp-sql-rust-x86_64-apple-darwin.mcpb",
-      "fileSha256": "39ec37d07f94af84d8fea696a347e77c445096d26c51dc5b842f128ce6b9da59",
+      "identifier": "https://github.com/rzlco666/mcp-sql-rust/releases/download/v0.4.0/mcp-sql-rust-x86_64-apple-darwin.mcpb",
+      "fileSha256": "PLACEHOLDER_UPDATE_ON_RELEASE",
       "transport": {
         "type": "stdio"
       },

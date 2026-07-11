@@ -1,0 +1,16 @@
+services:
+  app:
+    image: mcr.microsoft.com/devcontainers/base:ubuntu-24.04
+    volumes:
+      - ..:/workspaces/mcp-sql-rust:cached
+    command: sleep infinity
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://demo:demo@postgres:5432/demo
+      RUST_BACKTRACE: "1"
+    networks:
+      - default

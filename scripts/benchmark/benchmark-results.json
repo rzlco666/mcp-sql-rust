@@ -1,0 +1,49 @@
+{
+  "meta": {
+    "ran_at": "2026-07-11T01:21:32.241Z",
+    "database_url": "postgresql://demo:demo@localhost:5433/demo",
+    "iterations": 15,
+    "warmup": 2,
+    "versions": {
+      "server_postgres": "@modelcontextprotocol/server-postgres@0.6.2",
+      "postgres_mysql_mcp": "postgres-mysql-mcp-server@1.0.3"
+    },
+    "hostname": "LAPTOP-OC7HTPEU",
+    "disclaimer": "Results vary by hardware and DB latency. RSS measured via /proc on Linux only."
+  },
+  "results": [
+    {
+      "command": "/home/rizal/projects/mcp-sql-rust/target/release/mcp-sql-rust",
+      "pid": 131121,
+      "cold_start_ms": 13.49,
+      "idle_rss_mb": 10.36,
+      "load_rss_mb": 12.76,
+      "p50_tool_ms": 0.88,
+      "tools_list_bytes": 2509,
+      "iterations": 15,
+      "name": "mcp-sql-rust"
+    },
+    {
+      "command": "npx",
+      "pid": 131183,
+      "cold_start_ms": 563.63,
+      "idle_rss_mb": 100.41,
+      "load_rss_mb": 100.41,
+      "p50_tool_ms": 1.48,
+      "tools_list_bytes": 141,
+      "iterations": 15,
+      "name": "server-postgres"
+    },
+    {
+      "command": "npx",
+      "pid": 131307,
+      "cold_start_ms": 553.31,
+      "idle_rss_mb": 100.91,
+      "load_rss_mb": 100.91,
+      "p50_tool_ms": 0.32,
+      "tools_list_bytes": 1969,
+      "iterations": 15,
+      "name": "postgres-mysql-mcp-server"
+    }
+  ]
+}

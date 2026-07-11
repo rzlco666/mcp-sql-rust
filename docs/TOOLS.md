@@ -1,5 +1,7 @@
 # MCP Tools — mcp-sql-rust
 
+Demo data for examples below: `docker compose up -d` + [`.env.example`](../.env.example) (`demo.users`, `demo.orders` on Postgres port **5433**).
+
 ## Default tools (token-efficient)
 
 ### `search_objects`

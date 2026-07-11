@@ -1,0 +1,23 @@
+{
+  "version": "0.4.0",
+  "description": "Token-efficient MCP server for MySQL, PostgreSQL, and SQLite",
+  "homepage": "https://github.com/rzlco666/mcp-sql-rust",
+  "license": "MIT",
+  "architecture": {
+    "64bit": {
+      "url": "https://github.com/rzlco666/mcp-sql-rust/releases/download/v0.4.0/mcp-sql-rust-x86_64-pc-windows-msvc.zip",
+      "hash": "REPLACE_ME_WINDOWS_ZIP_SHA256"
+    }
+  },
+  "bin": "mcp-sql-rust.exe",
+  "checkver": {
+    "github": "rzlco666/mcp-sql-rust"
+  },
+  "autoupdate": {
+    "architecture": {
+      "64bit": {
+        "url": "https://github.com/rzlco666/mcp-sql-rust/releases/download/v$version/mcp-sql-rust-x86_64-pc-windows-msvc.zip"
+      }
+    }
+  }
+}

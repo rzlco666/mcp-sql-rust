@@ -19,7 +19,8 @@ flowchart TB
   Tools --> Guard[sqlparser AST Guard]
   Guard -->|allow| Exec[sqlx Exec / Explain]
   Guard -->|deny| Err[Error no DB hit]
-  Exec --> Pool[EnginePool]
+  Exec --> Bind[db/bind.rs params]
+  Bind --> Pool[EnginePool]
   Pool --> PG[(PostgreSQL)]
   Pool --> MY[(MySQL)]
   Pool --> SQ[(SQLite)]
@@ -36,12 +37,14 @@ src/
   config.rs        # WriteMode, .env walk, TOML sources, pools
   server.rs        # rmcp ServerHandler, CORE/FULL tool filter, HTTP
   guard/
-    mod.rs         # validate_and_prepare
+    mod.rs         # validate_and_prepare (PG/MySQL/SQLite dialects)
     classify.rs    # Statement → SqlClass
+    params.rs      # Placeholder count validation
   db/
     pool.rs        # EngineKind, EnginePool
-    exec.rs        # execute_query, execute_batch
-    explain.rs     # EXPLAIN → ExplainSummary
+    bind.rs        # sqlx parameter binding (PG/MySQL/SQLite)
+    exec.rs        # execute_query, pagination, execute_batch
+    explain.rs     # EXPLAIN → ExplainSummary (+ params)
     schema.rs      # search_objects / list_* / describe_table
   format/
     columnar.rs    # ColumnarResult + byte truncate
@@ -66,20 +69,44 @@ src/
 1. Resolve `source` → `ResolvedSource`
 2. `validate_and_prepare` (dialect parse, classify, enforce WriteMode, LIMIT inject)
 3. On deny → return error **without** `pool` checkout
-4. On allow → `tokio::time::timeout` + sqlx query/execute
-5. Map rows → columnar; truncate by `max_bytes`
-6. Return JSON text content block
+4. Bind `params` via `db/bind.rs`
+5. Apply `page_offset` / `page_size` (single-query mode)
+6. On allow → `tokio::time::timeout` + sqlx query/execute
+7. Map rows → columnar; truncate by `max_bytes`
+8. Return JSON text content block
 
 ## Batch path
 
-`queries: string[]` → each string validated independently → `buffer_unordered(batch_concurrency)` → `{results:[...]}`. Fail-soft unless `--fail-fast`.
+`queries: string[]` → each string validated independently → `buffer_unordered(batch_concurrency)` → `{results:[...]}`. Fail-soft unless `--fail-fast`. Pagination not supported in batch mode.
 
 ## Transports
 
 | Mode | Flag | Notes |
 |------|------|-------|
-| stdio | (default) | Cursor / Claude Desktop |
-| Streamable HTTP | `--http 127.0.0.1:8080` | Axum nest `/mcp` |
+| stdio | (default) | Newline-delimited JSON-RPC (`rmcp`) |
+| Streamable HTTP | `--http 127.0.0.1:8080` | Axum nest `/mcp`; `/healthz` pool ping |
+
+## Distribution (v0.4.0)
+
+| Channel | Artifact / entry |
+|---------|------------------|
+| GitHub Releases | `.tar.gz` (Linux/macOS), `.zip` (Windows), `SHA256SUMS`, `.mcpb` |
+| curl | [`install.sh`](../install.sh) |
+| Homebrew | `packaging/homebrew/mcp-sql-rust.rb` |
+| Docker | [`Dockerfile`](../Dockerfile) → `ghcr.io/rzlco666/mcp-sql-rust` |
+| cargo-binstall | `[package.metadata.binstall]` in `Cargo.toml` |
+
+See [INSTALL.md](INSTALL.md).
+
+## Local dev environment
+
+| Component | Path |
+|-----------|------|
+| Compose stack | [`docker-compose.yml`](../docker-compose.yml) |
+| Seed SQL | [`docker/seed/`](../docker/seed/) |
+| Dev Container | [`.devcontainer/`](../.devcontainer/) |
+
+Postgres host port **5433**, MySQL **3307** (avoids conflicts with local DB installs).
 
 ## Design references
 

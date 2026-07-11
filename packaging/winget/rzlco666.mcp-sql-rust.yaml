@@ -1,0 +1,31 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.singleton.1.6.0.schema.json
+
+PackageIdentifier: rzlco666.mcp-sql-rust
+PackageVersion: 0.4.0
+PackageLocale: en-US
+Publisher: rzlco666
+PublisherUrl: https://github.com/rzlco666
+PublisherSupportUrl: https://github.com/rzlco666/mcp-sql-rust/issues
+PackageName: mcp-sql-rust
+PackageUrl: https://github.com/rzlco666/mcp-sql-rust
+License: MIT
+LicenseUrl: https://github.com/rzlco666/mcp-sql-rust/blob/main/LICENSE
+ShortDescription: Token-efficient MCP server for MySQL, PostgreSQL, and SQLite
+Moniker: mcp-sql-rust
+Tags:
+  - mcp
+  - mysql
+  - postgresql
+  - sqlite
+  - sql
+Installers:
+  - Architecture: x64
+    InstallerType: zip
+    NestedInstallerType: portable
+    NestedInstallerFiles:
+      - RelativeFilePath: mcp-sql-rust.exe
+        PortableCommandAlias: mcp-sql-rust
+    InstallerUrl: https://github.com/rzlco666/mcp-sql-rust/releases/download/v0.4.0/mcp-sql-rust-x86_64-pc-windows-msvc.zip
+    InstallerSha256: REPLACE_ME_WINDOWS_ZIP_SHA256
+ManifestType: singleton
+ManifestVersion: 1.6.0

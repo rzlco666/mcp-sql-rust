@@ -18,21 +18,21 @@ flowchart LR
 
 ### 1. AST guard (`src/guard/`)
 
-- Dialect: `PostgreSqlDialect` / `MySqlDialect`
+- Dialects: `PostgreSqlDialect` / `MySqlDialect` / `SQLiteDialect`
 - Reject empty / multi-statement strings
 - Classify: Read / Dml / Ddl / Txn / Other
 - Enforce against `WriteMode`
 - Inject `LIMIT` on SELECT when missing; clamp explicit `LIMIT` above `--max-rows`
 - `EXPLAIN ANALYZE` requires writes
-- Batch `queries[]` items are each parsed as a single statement; multi-statement strings are rejected
+- Batch `queries[]` items are each parsed as a single statement
 
 ### 1b. Parameterized queries (`params`)
 
-`execute_sql` accepts optional `params` for `?` placeholders (or native `$N` on PostgreSQL). Values are bound via sqlx — they are **not** concatenated into the SQL string.
+`execute_sql` and `analyze_query_performance` accept optional `params` for `?` placeholders (or native `$N` on PostgreSQL). Values bind via `db/bind.rs` — **never** concatenated into SQL.
 
-**What params help with:** safe value binding when agents separate SQL structure from user-supplied values.
+**What params help with:** safe value binding when agents separate structure from user input.
 
-**What params do not change:** the AST guard still runs first; write tiers still apply; agents can still send raw SQL without `params` (by design for an MCP SQL server). Multi-statement smuggling in one string remains blocked regardless of `params`.
+**What params do not change:** AST guard still runs first; write tiers still apply; agents can send raw SQL without `params`. Multi-statement smuggling remains blocked.
 
 ### 2. Write tiers (CLI)
 
@@ -42,17 +42,17 @@ flowchart LR
 | AllowWrites | `--allow-writes` | + INSERT/UPDATE/DELETE/MERGE |
 | AllowDdl | `--allow-ddl` | + DROP/ALTER/TRUNCATE/CREATE/GRANT… |
 
-Transaction control (`BEGIN`/`COMMIT`/`ROLLBACK`) is always blocked at the guard (agents should not manage txns via MCP in v1).
+Transaction control (`BEGIN`/`COMMIT`/`ROLLBACK`) is blocked at the guard.
 
 ### 3. Session hardening
 
-- Postgres (when not allowing writes): `SET default_transaction_read_only = on` in `after_connect`
-- MySQL (when not allowing writes): `SET SESSION TRANSACTION READ ONLY` in `after_connect`
-- Both engines still rely on AST guard + least-privilege DB user
+- Postgres (read-only): `SET default_transaction_read_only = on`
+- MySQL (read-only): `SET SESSION TRANSACTION READ ONLY`
+- SQLite (read-only): `?mode=ro` on connect URL
 
 ### 4. Operational recommendation
 
-Create a read-only DB role for agent use:
+Use a read-only DB role for agent workloads. Demo compose credentials (`demo/demo`) are for **local dev only**.
 
 ```sql
 -- PostgreSQL example
@@ -65,13 +65,23 @@ GRANT SELECT ON ALL TABLES IN SCHEMA public TO mcp_ro;
 ## Secrets
 
 - Credentials from `.env` / env / TOML `url_env` — never from tool arguments
-- Do not log full DSNs
-- Do not put passwords in MCP tool schemas or Cursor JSON `args`
+- Do not log full DSNs (`MCP_SQL_LOG` goes to stderr)
+- Do not put passwords in MCP client JSON `args`
+
+## Release artifact integrity
+
+GitHub Releases publish `SHA256SUMS` for all archives. Verify before install:
+
+```bash
+sha256sum -c SHA256SUMS --ignore-missing
+```
+
+[`install.sh`](../install.sh) verifies by default. See [INSTALL.md](INSTALL.md).
 
 ## HTTP transport
 
-`--http` binds Streamable HTTP without OAuth in v1. Bind to `127.0.0.1` only unless you add auth.
+`--http` binds Streamable HTTP without OAuth in v1. Bind to `127.0.0.1` unless behind TLS + access controls.
 
 ## Reporting
 
-If you find a guard bypass, open a GitHub issue with a minimal SQL repro (no production credentials).
+Guard bypass reports: GitHub issue with minimal SQL repro (no production credentials).

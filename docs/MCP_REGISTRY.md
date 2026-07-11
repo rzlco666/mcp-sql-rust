@@ -1,67 +1,65 @@
 # MCP Registry — mcp-sql-rust
 
-This project publishes to the [MCP Registry](https://registry.modelcontextprotocol.io) using **MCPB** bundles attached to [GitHub Releases](https://github.com/rzlco666/mcp-sql-rust/releases).
+Publishes to the [MCP Registry](https://registry.modelcontextprotocol.io) using **MCPB** bundles on [GitHub Releases](https://github.com/rzlco666/mcp-sql-rust/releases).
 
-Registry name (discoverability convention):
+Registry name:
 
 ```text
-mcp-name: io.github.rzlco666/mcp-sql-rust
+io.github.rzlco666/mcp-sql-rust
 ```
 
-## Artifacts
+## Release artifacts (v0.4.0+)
+
+| Asset | Purpose |
+|-------|---------|
+| `mcp-sql-rust-<target>.tar.gz` | Linux/macOS binary archive |
+| `mcp-sql-rust-x86_64-pc-windows-msvc.zip` | Windows binary archive |
+| `SHA256SUMS` | Checksums for all release files |
+| `mcp-sql-rust-<target>.mcpb` | MCP Registry bundle per platform |
+
+Archive naming is consistent across platforms. See [INSTALL.md](INSTALL.md) for non-registry install paths.
+
+## Files in repo
 
 | File | Purpose |
 |------|---------|
 | [`server.json`](../server.json) | Registry manifest (`registryType: mcpb`) |
-| [`mcpb/manifest.json`](../mcpb/manifest.json) | MCPB bundle template (binary copied at pack time) |
-| Release `.mcpb` assets | Platform bundles built in CI |
-| [`.github/workflows/registry-publish.yml`](../.github/workflows/registry-publish.yml) | Auto-publish on GitHub Release |
+| [`mcpb/manifest.json`](../mcpb/manifest.json) | MCPB template |
+| [`.github/workflows/release.yml`](../.github/workflows/release.yml) | Build archives + MCPB + SHA256SUMS |
+| [`.github/workflows/registry-publish.yml`](../.github/workflows/registry-publish.yml) | Auto-publish on release |
 
-Crates.io is **not** used (`publish = false` in `Cargo.toml`).
+Crates.io is **not** used (`publish = false`). Use GitHub Releases, Homebrew tap, or `cargo binstall`.
 
-## Automated publish (recommended)
+## Automated publish
 
-On each GitHub Release (`release: published`), CI runs `registry-publish.yml`:
+On GitHub Release (`release: published`) or after Release workflow completes:
 
-1. Downloads `mcp-publisher`
-2. Syncs `server.json` version from the release tag
+1. Download `mcp-publisher`
+2. Sync `server.json` version from tag
 3. `mcp-publisher login github-oidc`
 4. `mcp-publisher publish`
 
-Requires repository **Actions** permission for OIDC (`id-token: write` — already set in workflow).
+Manual fallback: `workflow_dispatch` on `registry-publish.yml`.
 
-## Manual publish (first time or fallback)
+## Manual publish
 
-1. Install CLI:
-
-```bash
-curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
-mv mcp-publisher ~/.local/bin/
-```
-
-2. After release, patch hashes (Linux amd64 minimum):
+1. Install `mcp-publisher` (see [MCP Registry docs](https://github.com/modelcontextprotocol/registry))
+2. After release, patch MCPB hash:
 
 ```bash
-./scripts/update-server-json-sha.sh 0.3.0
+./scripts/update-server-json-sha.sh 0.4.0
 ```
 
-3. Authenticate and publish (interactive GitHub device flow):
+3. Authenticate (interactive): `mcp-publisher login github`
+4. `mcp-publisher validate server.json && mcp-publisher publish`
 
-```bash
-mcp-publisher login github
-mcp-publisher validate server.json
-mcp-publisher publish
-```
-
-Must authenticate as the GitHub user that owns namespace `io.github.rzlco666/`.
-
-4. Verify:
+## Verify
 
 ```bash
 curl -s "https://registry.modelcontextprotocol.io/v0/servers?search=io.github.rzlco666/mcp-sql-rust"
 ```
 
-## Cursor install (direct binary)
+## Cursor install (binary)
 
 ```json
 {
@@ -74,4 +72,8 @@ curl -s "https://registry.modelcontextprotocol.io/v0/servers?search=io.github.rz
 }
 ```
 
-Set `DATABASE_URL` in the environment or project `.env`.
+Set `DATABASE_URL` in environment or project `.env`.
+
+## Integrity
+
+Release `SHA256SUMS` covers archives and MCPB files. Registry manifest stores `fileSha256` for the primary MCPB package. Verify downloads per [INSTALL.md](INSTALL.md).

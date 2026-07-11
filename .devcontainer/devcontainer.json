@@ -1,0 +1,35 @@
+{
+  "name": "mcp-sql-rust",
+  "dockerComposeFile": [
+    "../docker-compose.yml",
+    "docker-compose.extend.yml"
+  ],
+  "service": "app",
+  "workspaceFolder": "/workspaces/mcp-sql-rust",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "rust-lang.rust-analyzer",
+        "tamasfe.even-better-toml",
+        "ms-azuretools.vscode-docker"
+      ],
+      "settings": {
+        "rust-analyzer.cargo.features": "all"
+      }
+    }
+  },
+  "features": {
+    "ghcr.io/devcontainers/features/rust:1": {
+      "version": "1.88",
+      "profile": "minimal"
+    }
+  },
+  "postCreateCommand": "cp -n .env.example .env 2>/dev/null || true && cargo build",
+  "remoteUser": "vscode",
+  "forwardPorts": [5433, 3307, 8080],
+  "portsAttributes": {
+    "5433": { "label": "PostgreSQL" },
+    "3307": { "label": "MySQL" },
+    "8080": { "label": "MCP HTTP" }
+  }
+}

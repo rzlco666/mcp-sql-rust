@@ -11,6 +11,22 @@
 3. `--config mcp-sql-rust.toml` multi-source
 4. Error listing searched paths
 
+## Docker Compose (local dev)
+
+```bash
+docker compose up -d
+cp .env.example .env
+```
+
+Default from [`.env.example`](../.env.example):
+
+```env
+DATABASE_URL=postgresql://demo:demo@localhost:5433/demo
+# DATABASE_URL=mysql://demo:demo@localhost:3307/demo
+```
+
+Inside Dev Container, use hostnames `postgres` / `mysql` (see [QUICKSTART.md](QUICKSTART.md)).
+
 ## `.env` examples
 
 ```env
@@ -23,7 +39,6 @@ DATABASE_URL=mysql://user:pass@localhost:3306/app
 
 ```env
 DATABASE_URL=sqlite::memory:
-# or file:
 DATABASE_URL=sqlite://./data/app.db
 ```
 
@@ -57,6 +72,7 @@ Pass `"source": "analytics"` in tool calls.
 ## CLI reference
 
 ```bash
+mcp-sql-rust --version
 mcp-sql-rust                          # stdio, .env, read-only
 mcp-sql-rust --allow-writes
 mcp-sql-rust --allow-ddl
@@ -64,11 +80,21 @@ mcp-sql-rust --full-tools
 mcp-sql-rust --http 127.0.0.1:8080
 mcp-sql-rust --config ./mcp-sql-rust.toml
 mcp-sql-rust --url "$DATABASE_URL"
-mcp-sql-rust --url-env DATABASE_URL
 mcp-sql-rust --max-rows 50 --max-bytes 32768
 mcp-sql-rust --pool-size 16 --query-timeout 15
 mcp-sql-rust --batch-concurrency 4 --fail-fast
 ```
+
+## Install-specific notes
+
+| Channel | Config tip |
+|---------|------------|
+| curl / brew / releases | Put `DATABASE_URL` in project `.env` |
+| Docker | Pass `-e DATABASE_URL=...` to `docker run` |
+| MCP Registry `.mcpb` | Set `DATABASE_URL` in client env |
+| Dev Container | Pre-set in `devcontainer.json` / compose |
+
+Full install matrix: [INSTALL.md](INSTALL.md)
 
 ## Cursor MCP config
 
