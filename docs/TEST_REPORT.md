@@ -80,7 +80,7 @@ See [BENCHMARKS.md](BENCHMARKS.md):
 | `server.json` sha256 | Match | Aligns with release asset digests |
 | GHCR Docker | Live | `docker.yml` succeeded on tag |
 | Homebrew / Scoop / winget manifests | At 0.4.0 in repo | Submit/update upstream taps separately |
-| MCP Registry | **Stale at 0.3.0** | Re-publish via Actions → Registry Publish (workflow trigger fixed in `.github/workflows/registry-publish.yml`) |
+| MCP Registry | Live (0.4.0) | Published 2026-07-11 via Registry Publish workflow |
 
 ## Scorecard rationale (9.9 / 10)
 
