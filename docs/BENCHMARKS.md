@@ -2,6 +2,17 @@
 
 Reproducible performance comparison of **mcp-sql-rust** against other MCP SQL servers on PostgreSQL.
 
+## MySQL comparison (v0.5+)
+
+Compare against `mcp-mysql-server` (local-mysql rival) on the same queries:
+
+```bash
+MYSQL_DATABASE_URL=mysql://demo:demo@127.0.0.1:3307/demo \
+  ./scripts/benchmark/run-mysql-vs-mcp-mysql.sh
+```
+
+See also [`run-mysql.sh`](scripts/benchmark/run-mysql.sh) for the rival-only baseline.
+
 ## Summary (reference run)
 
 Measured on **WSL2 Ubuntu 24.04** (`LAPTOP-OC7HTPEU`), `docker compose` seed DB, pinned versions in [`scripts/benchmark/versions.lock`](../scripts/benchmark/versions.lock).
