@@ -9,7 +9,9 @@ async fn main() -> Result<()> {
     init_tracing();
     let cli = Cli::parse();
     let config = load_config(&cli).await?;
-    config.connect_all().await?;
+    if cli.eager_connect {
+        config.connect_all().await?;
+    }
 
     if let Some(addr) = &cli.http {
         run_http(config, addr).await

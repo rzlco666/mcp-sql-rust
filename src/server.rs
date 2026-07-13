@@ -28,9 +28,11 @@ use crate::tools::core::{
     handle_analyze_query, handle_execute_sql, handle_search_objects, AnalyzeQueryParams,
     ExecuteSqlParams, SearchObjectsParams,
 };
+use crate::tools::ddl::{handle_schema_mutate, SchemaMutateParams};
 use crate::tools::full::{
-    handle_describe_table, handle_list_indexes, handle_list_schemas, handle_list_sources,
-    handle_list_tables, DescribeTableParams, ListIndexesParams, ListTablesParams, SourceParams,
+    handle_describe_table, handle_list_foreign_keys, handle_list_indexes, handle_list_schemas,
+    handle_list_sources, handle_list_tables, DescribeTableParams, ListForeignKeysParams,
+    ListIndexesParams, ListTablesParams, SourceParams,
 };
 
 const CORE_TOOLS: &[&str] = &[
@@ -45,6 +47,8 @@ const FULL_TOOLS: &[&str] = &[
     "list_tables",
     "describe_table",
     "list_indexes",
+    "list_foreign_keys",
+    "schema_mutate",
 ];
 
 #[derive(Clone)]
@@ -123,6 +127,22 @@ impl McpSqlServer {
         params: Parameters<ListIndexesParams>,
     ) -> Result<CallToolResult, McpError> {
         handle_list_indexes(&self.config, params.0).await
+    }
+
+    #[tool(description = "List foreign keys for a schema or table.")]
+    async fn list_foreign_keys(
+        &self,
+        params: Parameters<ListForeignKeysParams>,
+    ) -> Result<CallToolResult, McpError> {
+        handle_list_foreign_keys(&self.config, params.0).await
+    }
+
+    #[tool(description = "DDL schema mutations (requires --allow-ddl).")]
+    async fn schema_mutate(
+        &self,
+        params: Parameters<SchemaMutateParams>,
+    ) -> Result<CallToolResult, McpError> {
+        handle_schema_mutate(&self.config, params.0).await
     }
 }
 
@@ -213,13 +233,24 @@ async fn healthz(State(state): State<HttpState>) -> impl IntoResponse {
     let mut all_ok = true;
 
     for source in state.config.sources.values() {
-        match source.pool.ping().await {
-            Ok(()) => sources.push(HealthSource {
-                name: source.name.clone(),
-                engine: engine_label(source.engine),
-                ok: true,
-                error: None,
-            }),
+        match source.pool().await {
+            Ok(pool) => match pool.ping().await {
+                Ok(()) => sources.push(HealthSource {
+                    name: source.name.clone(),
+                    engine: engine_label(source.engine),
+                    ok: true,
+                    error: None,
+                }),
+                Err(e) => {
+                    all_ok = false;
+                    sources.push(HealthSource {
+                        name: source.name.clone(),
+                        engine: engine_label(source.engine),
+                        ok: false,
+                        error: Some(e.to_string()),
+                    });
+                }
+            },
             Err(e) => {
                 all_ok = false;
                 sources.push(HealthSource {

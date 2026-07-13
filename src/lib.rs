@@ -2,6 +2,7 @@ pub mod config;
 pub mod db;
 pub mod format;
 pub mod guard;
+pub mod redact;
 pub mod server;
 pub mod tools;
 

@@ -77,7 +77,7 @@ async fn mysql_describe_table_returns_columns() {
         "binding bug: information_schema returned 0 rows for {schema}.{table}"
     );
 
-    let object = describe_table(&pool, Some(&schema), &table)
+    let object = describe_table(&pool, None, Some(&schema), &table)
         .await
         .expect("describe_table");
     let columns = object.columns.expect("columns field");
@@ -114,13 +114,13 @@ async fn mysql_describe_table_fw_users_if_present() {
         return;
     }
 
-    let object = describe_table(&pool, Some(&schema), "fw_users")
+    let object = describe_table(&pool, None, Some(&schema), "fw_users")
         .await
         .expect("describe fw_users");
     let columns = object.columns.expect("columns");
     assert!(!columns.is_empty(), "fw_users should have columns");
 
-    let qualified = describe_table(&pool, None, &format!("{schema}.fw_users"))
+    let qualified = describe_table(&pool, None, None, &format!("{schema}.fw_users"))
         .await
         .expect("describe qualified table");
     assert!(
@@ -165,6 +165,59 @@ async fn mysql_show_processlist_allowed_and_runs() {
         .expect("execute");
     assert!(result.ok, "SHOW PROCESSLIST should succeed");
     assert!(result.data.is_some());
+}
+
+#[tokio::test]
+#[ignore = "requires MYSQL_DATABASE_URL or mysql:// DATABASE_URL"]
+async fn mysql_information_schema_aggregates_serialize_as_numbers() {
+    let pool = mysql_pool()
+        .await
+        .expect("set MYSQL_DATABASE_URL to a mysql:// DSN");
+
+    let sql = "SELECT COUNT(*) AS total_tables, SUM(table_rows) AS approx_rows, \
+               ROUND(SUM(data_length)/1024/1024,1) AS data_mb \
+               FROM information_schema.tables \
+               WHERE table_schema = DATABASE() AND table_type='BASE TABLE'";
+
+    let result = execute_query(&pool, sql, &[], &exec_opts())
+        .await
+        .expect("execute")
+        .data
+        .expect("data");
+
+    assert_eq!(result.rows.len(), 1);
+    let row = &result.rows[0];
+    assert!(
+        row[0].is_number(),
+        "COUNT(*) should be number, got {}",
+        row[0]
+    );
+    assert!(
+        row[1].is_number(),
+        "SUM(table_rows) should be number, got {}",
+        row[1]
+    );
+    assert!(
+        row[2].is_number(),
+        "ROUND(...) should be number, got {}",
+        row[2]
+    );
+
+    let top_sql = "SELECT table_name, table_rows, \
+                   ROUND((data_length+index_length)/1024/1024,1) AS size_mb \
+                   FROM information_schema.tables WHERE table_schema = DATABASE() \
+                   ORDER BY (data_length+index_length) DESC LIMIT 5";
+
+    let top = execute_query(&pool, top_sql, &[], &exec_opts())
+        .await
+        .expect("execute top tables")
+        .data
+        .expect("data");
+
+    for (i, row) in top.rows.iter().enumerate() {
+        assert!(row[1].is_number() || row[1].is_null(), "row {i} table_rows: {}", row[1]);
+        assert!(row[2].is_number() || row[2].is_null(), "row {i} size_mb: {}", row[2]);
+    }
 }
 
 #[tokio::test]

@@ -83,7 +83,31 @@ mcp-sql-rust --url "$DATABASE_URL"
 mcp-sql-rust --max-rows 50 --max-bytes 32768
 mcp-sql-rust --pool-size 16 --query-timeout 15
 mcp-sql-rust --batch-concurrency 4 --fail-fast
+mcp-sql-rust --workspace /path/to/project   # chdir + .env walk + SQLite relative paths
+mcp-sql-rust --eager-connect                # connect at startup (default: lazy)
 ```
+
+## Lazy connect
+
+By default the server **does not** connect to the database at startup. The first tool call establishes the pool (5s timeout). Errors redact passwords:
+
+```
+cannot connect to mysql://user:***@127.0.0.1:3306/db: connection refused
+```
+
+Use `--eager-connect` to ping all sources before serving MCP (previous behavior).
+
+## Response format
+
+```bash
+MCP_SQL_FORMAT=auto|columnar|rows mcp-sql-rust
+```
+
+Per-query override on `execute_sql`: `"format": "rows"`. `auto` returns row objects when ≤10 rows, else columnar.
+
+## Cursor IDE
+
+See [CURSOR.md](CURSOR.md) for the official global launcher (`packaging/cursor-mcp-launcher.mjs`).
 
 ## Install-specific notes
 
