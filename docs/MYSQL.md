@@ -18,7 +18,11 @@ Seed data: [`docker/seed/mysql.sql`](../docker/seed/mysql.sql) — `users` (200)
 
 In MySQL, the `schema` tool parameter is the **database name** (`table_schema` in `information_schema`).
 
-When `schema` is omitted, the server resolves the current database via `SELECT DATABASE()` from the connection URL.
+When `schema` is omitted, the server resolves the current database via `SELECT DATABASE()` or the database name in `DATABASE_URL`. Use `schema: "*"` only to search all databases on the server.
+
+## Type fidelity (v0.5+)
+
+`information_schema` aggregates (`SUM(table_rows)`, `ROUND(...)`, `COUNT(*)`) return JSON **numbers** without `CAST(... AS CHAR)` workarounds. `DECIMAL` columns decode via `bigdecimal`.
 
 ## `describe_table`
 

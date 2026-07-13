@@ -2,10 +2,10 @@ use std::sync::Arc;
 
 use rmcp::model::{CallToolResult, ContentBlock};
 use schemars::JsonSchema;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::config::AppConfig;
-use crate::db::{describe_table, list_indexes, list_schemas, list_tables};
+use crate::db::{describe_table, list_foreign_keys, list_indexes, list_schemas, list_tables};
 use crate::tools::core::{json_result, tool_error};
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -31,6 +31,10 @@ pub struct ListTablesParams {
     pub keyword: Option<String>,
     #[serde(default)]
     pub source: Option<String>,
+    #[serde(default)]
+    pub offset: Option<usize>,
+    #[serde(default)]
+    pub limit: Option<usize>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -45,7 +49,23 @@ pub struct ListIndexesParams {
     pub source: Option<String>,
 }
 
-pub async fn handle_list_sources(config: &Arc<AppConfig>) -> Result<CallToolResult, rmcp::ErrorData> {
+#[derive(Debug, Clone, Serialize)]
+struct ListTablesMeta {
+    n: usize,
+    offset: usize,
+    limit: usize,
+    has_more: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ListTablesResult {
+    objects: Vec<crate::db::SchemaObject>,
+    meta: ListTablesMeta,
+}
+
+pub async fn handle_list_sources(
+    config: &Arc<AppConfig>,
+) -> Result<CallToolResult, rmcp::ErrorData> {
     let names: Vec<&str> = config.sources.keys().map(String::as_str).collect();
     let payload = serde_json::json!({
         "default": config.default_source,
@@ -63,7 +83,11 @@ pub async fn handle_list_schemas(
     let source = config
         .source(params.source.as_deref())
         .map_err(|e| tool_error(e.to_string()))?;
-    let objects = list_schemas(&source.pool, None)
+    let pool = source
+        .pool()
+        .await
+        .map_err(|e| tool_error(e.to_string()))?;
+    let objects = list_schemas(&pool, None)
         .await
         .map_err(|e| tool_error(e.to_string()))?;
     json_result(&objects)
@@ -76,14 +100,33 @@ pub async fn handle_list_tables(
     let source = config
         .source(params.source.as_deref())
         .map_err(|e| tool_error(e.to_string()))?;
-    let objects = list_tables(
-        &source.pool,
+    let pool = source
+        .pool()
+        .await
+        .map_err(|e| tool_error(e.to_string()))?;
+    let offset = params.offset.unwrap_or(0);
+    let limit = params.limit.unwrap_or(50).min(200);
+    let mut objects = list_tables(
+        &pool,
+        Some(&source.url),
         params.schema.as_deref(),
         params.keyword.as_deref(),
     )
     .await
     .map_err(|e| tool_error(e.to_string()))?;
-    json_result(&objects)
+    let total = objects.len();
+    let slice = objects
+        .drain(offset..total.min(offset + limit))
+        .collect::<Vec<_>>();
+    json_result(&ListTablesResult {
+        meta: ListTablesMeta {
+            n: slice.len(),
+            offset,
+            limit,
+            has_more: offset + slice.len() < total,
+        },
+        objects: slice,
+    })
 }
 
 pub async fn handle_describe_table(
@@ -93,8 +136,13 @@ pub async fn handle_describe_table(
     let source = config
         .source(params.source.as_deref())
         .map_err(|e| tool_error(e.to_string()))?;
+    let pool = source
+        .pool()
+        .await
+        .map_err(|e| tool_error(e.to_string()))?;
     let object = describe_table(
-        &source.pool,
+        &pool,
+        Some(&source.url),
         params.schema.as_deref(),
         &params.table,
     )
@@ -110,8 +158,13 @@ pub async fn handle_list_indexes(
     let source = config
         .source(params.source.as_deref())
         .map_err(|e| tool_error(e.to_string()))?;
+    let pool = source
+        .pool()
+        .await
+        .map_err(|e| tool_error(e.to_string()))?;
     let objects = list_indexes(
-        &source.pool,
+        &pool,
+        Some(&source.url),
         params.schema.as_deref(),
         params.table.as_deref(),
         params.keyword.as_deref(),
@@ -119,4 +172,36 @@ pub async fn handle_list_indexes(
     .await
     .map_err(|e| tool_error(e.to_string()))?;
     json_result(&objects)
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct ListForeignKeysParams {
+    #[serde(default)]
+    pub schema: Option<String>,
+    #[serde(default)]
+    pub table: Option<String>,
+    #[serde(default)]
+    pub source: Option<String>,
+}
+
+pub async fn handle_list_foreign_keys(
+    config: &Arc<AppConfig>,
+    params: ListForeignKeysParams,
+) -> Result<CallToolResult, rmcp::ErrorData> {
+    let source = config
+        .source(params.source.as_deref())
+        .map_err(|e| tool_error(e.to_string()))?;
+    let pool = source
+        .pool()
+        .await
+        .map_err(|e| tool_error(e.to_string()))?;
+    let fks = list_foreign_keys(
+        &pool,
+        Some(&source.url),
+        params.schema.as_deref(),
+        params.table.as_deref(),
+    )
+    .await
+    .map_err(|e| tool_error(e.to_string()))?;
+    json_result(&fks)
 }

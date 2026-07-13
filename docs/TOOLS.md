@@ -27,6 +27,7 @@ Run SQL or concurrent batch.
 | `params` | array? | bound values for `?` placeholders (single-query mode) |
 | `page_offset` | number? | row offset after guard LIMIT (single-query only; default 0) |
 | `page_size` | number? | rows per page (single-query only; default `--max-rows`) |
+| `format` | `auto` \| `columnar` \| `rows`? | response shape (default `auto`: row objects if ≤10 rows) |
 | `queries` | string[] or object[]? | batch (not both with `sql`) |
 | `source` | string? | connection name |
 
@@ -126,11 +127,13 @@ On MySQL, `total_cost` and `plan_rows` are best-effort (aggregated from plan nod
 |------|---------|
 | `list_sources` | Configured connection names |
 | `list_schemas` | Schemas / databases |
-| `list_tables` | Tables in schema |
-| `describe_table` | Columns + indexes for one table |
+| `list_tables` | Tables in schema (paginated: `offset`, `limit`) |
+| `describe_table` | Columns + indexes (`key`, `extra`, `comment`, `default` on MySQL) |
 | `list_indexes` | Indexes for schema/table |
+| `list_foreign_keys` | Foreign keys for schema/table |
+| `schema_mutate` | DDL actions (`create_table`, `drop_table`, …) — requires `--allow-ddl` |
 
-These wrap the same introspection as `search_objects` — prefer `search_objects` in default mode to save tokens.
+`schema_mutate` destructive ops require `"confirm": true`. Prefer `search_objects` in default mode to save tokens.
 
 ## Caps
 

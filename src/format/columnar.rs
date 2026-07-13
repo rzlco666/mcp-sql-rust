@@ -1,5 +1,77 @@
-use serde::Serialize;
+use std::collections::HashMap;
+
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
+
+pub const AUTO_ROW_THRESHOLD: usize = 10;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default, schemars::JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum ResultFormat {
+    #[default]
+    Auto,
+    Columnar,
+    Rows,
+}
+
+pub fn resolve_result_format(override_fmt: Option<ResultFormat>) -> ResultFormat {
+    if let Some(fmt) = override_fmt {
+        return fmt;
+    }
+    match std::env::var("MCP_SQL_FORMAT")
+        .unwrap_or_default()
+        .to_lowercase()
+        .as_str()
+    {
+        "rows" => ResultFormat::Rows,
+        "columnar" => ResultFormat::Columnar,
+        "auto" => ResultFormat::Auto,
+        _ => ResultFormat::Auto,
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct RowObjectResult {
+    pub rows: Vec<HashMap<String, Value>>,
+    pub meta: ColumnarMeta,
+}
+
+pub fn format_columnar(format: ResultFormat, columnar: ColumnarResult) -> serde_json::Value {
+    let effective = match format {
+        ResultFormat::Auto => {
+            if columnar.rows.len() <= AUTO_ROW_THRESHOLD {
+                ResultFormat::Rows
+            } else {
+                ResultFormat::Columnar
+            }
+        }
+        other => other,
+    };
+    match effective {
+        ResultFormat::Columnar => serde_json::to_value(&columnar).unwrap_or(Value::Null),
+        ResultFormat::Rows | ResultFormat::Auto => {
+            let rows: Vec<HashMap<String, Value>> = columnar
+                .rows
+                .iter()
+                .map(|row| {
+                    let mut map = HashMap::new();
+                    for (i, col) in columnar.cols.iter().enumerate() {
+                        map.insert(
+                            col.clone(),
+                            row.get(i).cloned().unwrap_or(Value::Null),
+                        );
+                    }
+                    map
+                })
+                .collect();
+            serde_json::to_value(RowObjectResult {
+                rows,
+                meta: columnar.meta,
+            })
+            .unwrap_or(Value::Null)
+        }
+    }
+}
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ColumnarResult {

@@ -65,8 +65,18 @@ GRANT SELECT ON ALL TABLES IN SCHEMA public TO mcp_ro;
 ## Secrets
 
 - Credentials from `.env` / env / TOML `url_env` — never from tool arguments
+- Connection errors **redact passwords** in URLs (`mysql://user:***@host/db`)
 - Do not log full DSNs (`MCP_SQL_LOG` goes to stderr)
+- Optional audit trail: `MCP_SQL_LOG=audit` logs executed SQL (no param values)
 - Do not put passwords in MCP client JSON `args`
+
+### 5. Schema isolation (v0.5+)
+
+MySQL `search_objects` / `list_tables` / `list_columns` / `list_indexes` default to the **connected database** (`DATABASE()` or database name in URL). Cross-database search requires explicit `schema: "*"`.
+
+### 6. DDL confirm (v0.5+)
+
+`schema_mutate` destructive actions (`drop_table`, `truncate_table`, `drop_column`) require `"confirm": true` in tool arguments, in addition to `--allow-ddl`.
 
 ## Release artifact integrity
 

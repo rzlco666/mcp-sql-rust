@@ -5,12 +5,8 @@ use std::time::Duration;
 use anyhow::{bail, Context, Result};
 use clap::Parser;
 use serde::{Deserialize, Serialize};
-use sqlx::mysql::MySqlPoolOptions;
-use sqlx::postgres::PgPoolOptions;
-use sqlx::sqlite::SqlitePoolOptions;
 
-use crate::db::EngineKind;
-use crate::db::EnginePool;
+use crate::db::{detect_engine_from_url, EngineKind, EnginePool, LazyEnginePool};
 
 pub const DEFAULT_MAX_ROWS: u32 = 100;
 pub const DEFAULT_MAX_BYTES: usize = 64 * 1024;
@@ -49,6 +45,14 @@ pub struct Cli {
     /// Path to mcp-sql-rust.toml for multi-source configuration.
     #[arg(long)]
     pub config: Option<PathBuf>,
+
+    /// Workspace root for .env discovery and SQLite relative paths.
+    #[arg(long)]
+    pub workspace: Option<PathBuf>,
+
+    /// Connect to all sources at startup (default: lazy connect on first tool call).
+    #[arg(long)]
+    pub eager_connect: bool,
 
     /// Allow INSERT/UPDATE/DELETE.
     #[arg(long, conflicts_with = "allow_ddl")]
@@ -115,7 +119,29 @@ pub struct ResolvedSource {
     pub name: String,
     pub url: String,
     pub engine: EngineKind,
-    pub pool: EnginePool,
+    lazy_pool: LazyEnginePool,
+}
+
+impl ResolvedSource {
+    pub async fn pool(&self) -> Result<EnginePool> {
+        self.lazy_pool.get().await
+    }
+
+    pub fn with_connected_pool(
+        name: impl Into<String>,
+        url: String,
+        engine: EngineKind,
+        pool: EnginePool,
+        read_only: bool,
+    ) -> Self {
+        let name = name.into();
+        Self {
+            name: name.clone(),
+            url: url.clone(),
+            engine,
+            lazy_pool: LazyEnginePool::with_pool(url, engine, pool, read_only),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -130,6 +156,7 @@ pub struct AppConfig {
     pub default_source: String,
     pub sources: HashMap<String, ResolvedSource>,
     pub searched_paths: Vec<PathBuf>,
+    pub workspace: Option<PathBuf>,
 }
 
 impl AppConfig {
@@ -142,13 +169,19 @@ impl AppConfig {
 
     pub async fn connect_all(&self) -> Result<()> {
         for source in self.sources.values() {
-            source.pool.ping().await?;
+            source.pool().await?.ping().await?;
         }
         Ok(())
     }
 }
 
 pub async fn load_config(cli: &Cli) -> Result<AppConfig> {
+    let workspace = cli.workspace.clone();
+    if let Some(ws) = &workspace {
+        std::env::set_current_dir(ws)
+            .with_context(|| format!("cannot chdir to workspace {}", ws.display()))?;
+    }
+
     let searched_paths = discover_dotenv();
     let write_mode = if cli.allow_ddl {
         WriteMode::AllowDdl
@@ -158,6 +191,7 @@ pub async fn load_config(cli: &Cli) -> Result<AppConfig> {
         WriteMode::ReadOnly
     };
 
+    let read_only = !write_mode.allows_dml();
     let pool_size = cli.pool_size;
     let mut sources = HashMap::new();
 
@@ -168,15 +202,15 @@ pub async fn load_config(cli: &Cli) -> Result<AppConfig> {
             toml::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
         for src in toml_cfg.sources {
             let url = resolve_url(src.url.as_deref(), src.url_env.as_deref())?;
+            let url = resolve_sqlite_path(&url, workspace.as_deref());
             let engine = detect_engine(src.engine.as_deref(), &url)?;
-            let pool = connect_pool(&url, engine, pool_size, write_mode).await?;
             sources.insert(
                 src.name.clone(),
                 ResolvedSource {
                     name: src.name.clone(),
-                    url,
+                    url: url.clone(),
                     engine,
-                    pool,
+                    lazy_pool: LazyEnginePool::new(url, engine, pool_size, read_only),
                 },
             );
         }
@@ -195,6 +229,7 @@ pub async fn load_config(cli: &Cli) -> Result<AppConfig> {
             default_source,
             sources,
             searched_paths,
+            workspace,
         });
     }
 
@@ -207,15 +242,15 @@ pub async fn load_config(cli: &Cli) -> Result<AppConfig> {
         resolve_url_from_env()?
     };
 
+    let url = resolve_sqlite_path(&url, workspace.as_deref());
     let engine = detect_engine(None, &url)?;
-    let pool = connect_pool(&url, engine, pool_size, write_mode).await?;
     sources.insert(
         "default".into(),
         ResolvedSource {
             name: "default".into(),
-            url,
+            url: url.clone(),
             engine,
-            pool,
+            lazy_pool: LazyEnginePool::new(url, engine, pool_size, read_only),
         },
     );
 
@@ -230,6 +265,7 @@ pub async fn load_config(cli: &Cli) -> Result<AppConfig> {
         default_source: "default".into(),
         sources,
         searched_paths,
+        workspace,
     })
 }
 
@@ -246,6 +282,25 @@ fn discover_dotenv() -> Vec<PathBuf> {
         dir = d.parent().map(Path::to_path_buf);
     }
     searched
+}
+
+fn resolve_sqlite_path(url: &str, workspace: Option<&Path>) -> String {
+    let lower = url.to_lowercase();
+    if !lower.starts_with("sqlite:") {
+        return url.to_string();
+    }
+    let path_part = url
+        .strip_prefix("sqlite://")
+        .or_else(|| url.strip_prefix("sqlite:"))
+        .unwrap_or(url);
+    if path_part.starts_with("./") || path_part.starts_with(".\\") {
+        if let Some(ws) = workspace {
+            let rel = path_part.trim_start_matches("./").trim_start_matches(".\\");
+            let abs = ws.join(rel);
+            return format!("sqlite://{}", abs.display());
+        }
+    }
+    url.to_string()
 }
 
 fn resolve_url_from_env() -> Result<String> {
@@ -338,85 +393,7 @@ fn build_mysql_url_from_parts() -> Option<String> {
 }
 
 pub fn detect_engine(hint: Option<&str>, url: &str) -> Result<EngineKind> {
-    if let Some(h) = hint {
-        return match h.to_lowercase().as_str() {
-            "postgres" | "postgresql" | "pg" => Ok(EngineKind::Postgres),
-            "mysql" | "mariadb" => Ok(EngineKind::Mysql),
-            "sqlite" => Ok(EngineKind::Sqlite),
-            other => bail!("unknown engine hint '{other}'"),
-        };
-    }
-    let lower = url.to_lowercase();
-    if lower.starts_with("postgres://") || lower.starts_with("postgresql://") {
-        Ok(EngineKind::Postgres)
-    } else if lower.starts_with("mysql://") {
-        Ok(EngineKind::Mysql)
-    } else if lower.starts_with("sqlite:") || lower.starts_with("sqlite://") {
-        Ok(EngineKind::Sqlite)
-    } else {
-        bail!("cannot detect engine from URL scheme; use postgresql://, mysql://, or sqlite:")
-    }
-}
-
-fn sqlite_connect_url(url: &str, write_mode: WriteMode) -> String {
-    if write_mode.allows_dml() {
-        return url.to_string();
-    }
-    let lower = url.to_lowercase();
-    if lower.contains("mode=ro") || lower.contains("mode=readonly") {
-        return url.to_string();
-    }
-    if url.contains('?') {
-        format!("{url}&mode=ro")
-    } else {
-        format!("{url}?mode=ro")
-    }
-}
-
-async fn connect_pool(
-    url: &str,
-    engine: EngineKind,
-    pool_size: u32,
-    write_mode: WriteMode,
-) -> Result<EnginePool> {
-    match engine {
-        EngineKind::Postgres => {
-            let mut options = PgPoolOptions::new().max_connections(pool_size);
-            if !write_mode.allows_dml() {
-                options = options.after_connect(|conn, _meta| {
-                    Box::pin(async move {
-                        sqlx::query("SET default_transaction_read_only = on")
-                            .execute(conn)
-                            .await?;
-                        Ok(())
-                    })
-                });
-            }
-            let pool = options.connect(url).await?;
-            Ok(EnginePool::Postgres(pool))
-        }
-        EngineKind::Mysql => {
-            let mut options = MySqlPoolOptions::new().max_connections(pool_size);
-            if !write_mode.allows_dml() {
-                options = options.after_connect(|conn, _meta| {
-                    Box::pin(async move {
-                        sqlx::query("SET SESSION TRANSACTION READ ONLY")
-                            .execute(conn)
-                            .await?;
-                        Ok(())
-                    })
-                });
-            }
-            let pool = options.connect(url).await?;
-            Ok(EnginePool::Mysql(pool))
-        }
-        EngineKind::Sqlite => {
-            let connect_url = sqlite_connect_url(url, write_mode);
-            let options = SqlitePoolOptions::new().max_connections(pool_size);
-            let pool = options.connect(&connect_url).await?;
-            Ok(EnginePool::Sqlite(pool))
-        }
-    }
+    detect_engine_from_url(hint, url)
 }
 
 #[cfg(test)]
@@ -449,5 +426,14 @@ mod tests {
             detect_engine(None, "sqlite://./data.db").unwrap(),
             EngineKind::Sqlite
         );
+    }
+
+    #[test]
+    fn resolve_sqlite_relative_path() {
+        let url = resolve_sqlite_path(
+            "sqlite://./data.db",
+            Some(Path::new("/workspace/proj")),
+        );
+        assert!(url.contains("/workspace/proj/data.db"));
     }
 }

@@ -10,7 +10,7 @@ use crate::config::AppConfig;
 use crate::db::{
     analyze_query, execute_batch, execute_query, search_objects, ExecOptions, ObjectType,
 };
-use crate::format::to_json_text;
+use crate::format::{format_columnar, resolve_result_format, to_json_text, ResultFormat};
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct SearchObjectsParams {
@@ -53,7 +53,7 @@ impl BatchQueryItem {
     }
 }
 
-#[derive(Debug, Deserialize, JsonSchema)]
+#[derive(Debug, Default, Deserialize, JsonSchema)]
 pub struct ExecuteSqlParams {
     /// Single SQL statement.
     #[serde(default)]
@@ -72,6 +72,9 @@ pub struct ExecuteSqlParams {
     pub page_size: Option<usize>,
     #[serde(default)]
     pub source: Option<String>,
+    /// Response shape: auto (rows if ≤10), columnar, or rows.
+    #[serde(default)]
+    pub format: Option<ResultFormat>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -106,6 +109,33 @@ pub fn json_result<T: serde::Serialize>(value: &T) -> Result<CallToolResult, Mcp
     ))]))
 }
 
+fn format_query_result(
+    result: &crate::db::QueryResult,
+    format: ResultFormat,
+) -> serde_json::Value {
+    let mut out = serde_json::json!({
+        "ok": result.ok,
+        "error": result.error,
+    });
+    if let Some(data) = &result.data {
+        out["data"] = format_columnar(format, data.clone());
+    }
+    out
+}
+
+fn format_batch_result(
+    batch: &crate::db::BatchResult,
+    format: ResultFormat,
+) -> serde_json::Value {
+    serde_json::json!({
+        "results": batch
+            .results
+            .iter()
+            .map(|r| format_query_result(r, format))
+            .collect::<Vec<_>>()
+    })
+}
+
 pub async fn handle_search_objects(
     config: &Arc<AppConfig>,
     params: SearchObjectsParams,
@@ -113,11 +143,16 @@ pub async fn handle_search_objects(
     let source = config
         .source(params.source.as_deref())
         .map_err(|e| tool_error(e.to_string()))?;
+    let pool = source
+        .pool()
+        .await
+        .map_err(|e| tool_error(e.to_string()))?;
     let offset = params.offset.unwrap_or(0);
     let limit = params.limit.unwrap_or(50).min(200);
 
     let result = search_objects(
-        &source.pool,
+        &pool,
+        Some(&source.url),
         params.object_type,
         params.keyword.as_deref(),
         params.schema.as_deref(),
@@ -137,6 +172,7 @@ pub async fn handle_execute_sql(
     let source = config
         .source(params.source.as_deref())
         .map_err(|e| tool_error(e.to_string()))?;
+    let format = resolve_result_format(params.format);
     let opts = exec_options(config);
 
     if let Some(queries) = params.queries {
@@ -156,17 +192,23 @@ pub async fn handle_execute_sql(
         if queries.is_empty() {
             return Err(tool_error("queries array is empty"));
         }
+        let pool = source
+            .pool()
+            .await
+            .map_err(|e| tool_error(e.to_string()))?;
         let batch_items: Vec<(String, Vec<Value>)> =
             queries.into_iter().map(|q| q.into_sql_params()).collect();
         let batch = execute_batch(
-            &source.pool,
+            &pool,
             batch_items,
             &opts,
             config.batch_concurrency,
             config.fail_fast,
         )
         .await;
-        return json_result(&batch);
+        return Ok(CallToolResult::success(vec![ContentBlock::text(
+            serde_json::to_string(&format_batch_result(&batch, format)).unwrap_or_default(),
+        )]));
     }
 
     let sql = params
@@ -177,10 +219,16 @@ pub async fn handle_execute_sql(
     opts.page_offset = params.page_offset.unwrap_or(0);
     opts.page_size = params.page_size;
 
-    let result = execute_query(&source.pool, &sql, &query_params, &opts)
+    let pool = source
+        .pool()
         .await
         .map_err(|e| tool_error(e.to_string()))?;
-    json_result(&result)
+    let result = execute_query(&pool, &sql, &query_params, &opts)
+        .await
+        .map_err(|e| tool_error(e.to_string()))?;
+    Ok(CallToolResult::success(vec![ContentBlock::text(
+        serde_json::to_string(&format_query_result(&result, format)).unwrap_or_default(),
+    )]))
 }
 
 pub async fn handle_analyze_query(
@@ -191,8 +239,13 @@ pub async fn handle_analyze_query(
         .source(params.source.as_deref())
         .map_err(|e| tool_error(e.to_string()))?;
 
+    let pool = source
+        .pool()
+        .await
+        .map_err(|e| tool_error(e.to_string()))?;
+
     let summary = analyze_query(
-        &source.pool,
+        &pool,
         &params.sql,
         &params.params.unwrap_or_default(),
         config.write_mode,

@@ -86,12 +86,12 @@ async fn sqlite_list_tables_and_describe_table() {
     .await
     .expect("create items");
 
-    let tables = list_tables(&pool, Some("main"), None)
+    let tables = list_tables(&pool, None, Some("main"), None)
         .await
         .expect("list tables");
     assert!(tables.iter().any(|t| t.name == "items"));
 
-    let described = describe_table(&pool, Some("main"), "items")
+    let described = describe_table(&pool, None, Some("main"), "items")
         .await
         .expect("describe items");
     let columns = described.columns.expect("columns");

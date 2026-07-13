@@ -3,10 +3,11 @@ use std::time::{Duration, Instant};
 use futures::stream::{self, StreamExt};
 use serde::Serialize;
 use serde_json::Value;
-use sqlx::{mysql::MySqlRow, postgres::PgRow, sqlite::SqliteRow, Column, Row, TypeInfo};
+use sqlx::{mysql::MySqlRow, postgres::PgRow, sqlite::SqliteRow, Column, Row};
 
 use crate::config::WriteMode;
 use crate::db::bind::{bind_mysql_params, bind_pg_params, bind_sqlite_params};
+use crate::db::value::{decode_mysql_cell, decode_pg_cell, decode_sqlite_cell};
 use crate::db::{EngineKind, EnginePool};
 use crate::format::{truncate_to_bytes, ColumnarMeta, ColumnarResult};
 use crate::guard::{
@@ -67,6 +68,12 @@ pub async fn execute_query(
         },
     )?;
     let started = Instant::now();
+    let audit = std::env::var("MCP_SQL_LOG")
+        .map(|v| v.contains("audit"))
+        .unwrap_or(false);
+    if audit {
+        tracing::info!(sql = %sql, param_count = params.len(), "audit: execute");
+    }
 
     if prepared.class.requires_writes_for_explain() && !opts.write_mode.allows_dml() {
         tracing::warn!(
@@ -274,7 +281,7 @@ fn pg_rows_to_columnar(rows: &[PgRow]) -> Result<ColumnarResult, ExecError> {
     for row in rows {
         let mut values = Vec::with_capacity(cols.len());
         for (i, _) in row.columns().iter().enumerate() {
-            values.push(pg_value(row, i)?);
+            values.push(decode_pg_cell(row, i).map_err(ExecError::Database)?);
         }
         out_rows.push(values);
     }
@@ -312,7 +319,7 @@ fn mysql_rows_to_columnar(rows: &[MySqlRow]) -> Result<ColumnarResult, ExecError
     for row in rows {
         let mut values = Vec::with_capacity(cols.len());
         for (i, _) in row.columns().iter().enumerate() {
-            values.push(mysql_value(row, i)?);
+            values.push(decode_mysql_cell(row, i).map_err(ExecError::Database)?);
         }
         out_rows.push(values);
     }
@@ -350,7 +357,7 @@ fn sqlite_rows_to_columnar(rows: &[SqliteRow]) -> Result<ColumnarResult, ExecErr
     for row in rows {
         let mut values = Vec::with_capacity(cols.len());
         for (i, _) in row.columns().iter().enumerate() {
-            values.push(sqlite_value(row, i)?);
+            values.push(decode_sqlite_cell(row, i).map_err(ExecError::Database)?);
         }
         out_rows.push(values);
     }
@@ -391,76 +398,3 @@ fn empty_columnar() -> ColumnarResult {
     }
 }
 
-fn pg_value(row: &PgRow, index: usize) -> Result<Value, ExecError> {
-    if let Ok(v) = row.try_get::<bool, _>(index) {
-        return Ok(Value::Bool(v));
-    }
-    if let Ok(v) = row.try_get::<i64, _>(index) {
-        return Ok(Value::from(v));
-    }
-    if let Ok(v) = row.try_get::<f64, _>(index) {
-        return Ok(Value::from(v));
-    }
-    if let Ok(v) = row.try_get::<Value, _>(index) {
-        return Ok(v);
-    }
-    if let Ok(v) = row.try_get::<String, _>(index) {
-        return Ok(Value::String(v));
-    }
-    Ok(Value::Null)
-}
-
-fn mysql_type_is_bool(type_name: &str) -> bool {
-    type_name.eq_ignore_ascii_case("BOOL") || type_name.eq_ignore_ascii_case("BOOLEAN")
-}
-
-fn mysql_value(row: &MySqlRow, index: usize) -> Result<Value, ExecError> {
-    // Numeric types before bool — sqlx MySQL maps integer 0/1 to bool (e.g. COUNT(*)).
-    if let Ok(v) = row.try_get::<i64, _>(index) {
-        return Ok(Value::from(v));
-    }
-    if let Ok(v) = row.try_get::<u64, _>(index) {
-        return Ok(Value::from(v));
-    }
-    if let Ok(v) = row.try_get::<f64, _>(index) {
-        return Ok(Value::from(v));
-    }
-    if mysql_type_is_bool(row.column(index).type_info().name()) {
-        if let Ok(v) = row.try_get::<bool, _>(index) {
-            return Ok(Value::Bool(v));
-        }
-    }
-    if let Ok(v) = row.try_get::<String, _>(index) {
-        return Ok(Value::String(v));
-    }
-    Ok(Value::Null)
-}
-
-fn sqlite_value(row: &SqliteRow, index: usize) -> Result<Value, ExecError> {
-    if let Ok(v) = row.try_get::<i64, _>(index) {
-        return Ok(Value::from(v));
-    }
-    if let Ok(v) = row.try_get::<f64, _>(index) {
-        return Ok(Value::from(v));
-    }
-    if let Ok(v) = row.try_get::<bool, _>(index) {
-        return Ok(Value::Bool(v));
-    }
-    if let Ok(v) = row.try_get::<String, _>(index) {
-        return Ok(Value::String(v));
-    }
-    Ok(Value::Null)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn mysql_type_is_bool_recognizes_boolean_types() {
-        assert!(mysql_type_is_bool("BOOL"));
-        assert!(mysql_type_is_bool("BOOLEAN"));
-        assert!(!mysql_type_is_bool("BIGINT"));
-        assert!(!mysql_type_is_bool("TINYINT"));
-    }
-}

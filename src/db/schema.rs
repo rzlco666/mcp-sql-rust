@@ -39,6 +39,27 @@ pub struct ColumnInfo {
     pub name: String,
     pub data_type: String,
     pub nullable: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extra: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub comment: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ForeignKeyInfo {
+    pub name: String,
+    pub table: String,
+    pub columns: Vec<String>,
+    pub ref_table: String,
+    pub ref_columns: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub on_delete: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub on_update: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -64,6 +85,7 @@ pub struct SearchMeta {
 
 pub async fn search_objects(
     pool: &EnginePool,
+    connection_url: Option<&str>,
     object_type: ObjectType,
     keyword: Option<&str>,
     schema: Option<&str>,
@@ -72,9 +94,9 @@ pub async fn search_objects(
 ) -> Result<SearchResult, sqlx::Error> {
     let mut objects = match object_type {
         ObjectType::Schema => list_schemas(pool, keyword).await?,
-        ObjectType::Table => list_tables(pool, schema, keyword).await?,
-        ObjectType::Column => list_columns(pool, schema, keyword).await?,
-        ObjectType::Index => list_indexes(pool, schema, None, keyword).await?,
+        ObjectType::Table => list_tables(pool, connection_url, schema, keyword).await?,
+        ObjectType::Column => list_columns(pool, connection_url, schema, keyword).await?,
+        ObjectType::Index => list_indexes(pool, connection_url, schema, None, keyword).await?,
     };
 
     let total = objects.len();
@@ -175,6 +197,7 @@ pub async fn list_schemas(
 
 pub async fn list_tables(
     pool: &EnginePool,
+    connection_url: Option<&str>,
     schema: Option<&str>,
     keyword: Option<&str>,
 ) -> Result<Vec<SchemaObject>, sqlx::Error> {
@@ -211,23 +234,26 @@ pub async fn list_tables(
         }
         EngineKind::Mysql => {
             let pool = pool.mysql().expect("mysql");
-            let schema = resolve_mysql_schema(pool, schema).await?;
+            let scope = resolve_mysql_schema(pool, schema, connection_url).await?;
 
-            let rows = if schema.is_empty() {
-                sqlx::query(
-                    "SELECT table_schema, table_name FROM information_schema.tables \
-                     WHERE table_type = 'BASE TABLE' ORDER BY table_schema, table_name",
-                )
-                .fetch_all(pool)
-                .await?
-            } else {
-                sqlx::query(
-                    "SELECT table_schema, table_name FROM information_schema.tables \
-                     WHERE table_schema = ? AND table_type = 'BASE TABLE' ORDER BY table_name",
-                )
-                .bind(&schema)
-                .fetch_all(pool)
-                .await?
+            let rows = match &scope {
+                MysqlSchemaScope::All => {
+                    sqlx::query(
+                        "SELECT table_schema, table_name FROM information_schema.tables \
+                         WHERE table_type = 'BASE TABLE' ORDER BY table_schema, table_name",
+                    )
+                    .fetch_all(pool)
+                    .await?
+                }
+                MysqlSchemaScope::One(schema_name) => {
+                    sqlx::query(
+                        "SELECT table_schema, table_name FROM information_schema.tables \
+                         WHERE table_schema = ? AND table_type = 'BASE TABLE' ORDER BY table_name",
+                    )
+                    .bind(schema_name)
+                    .fetch_all(pool)
+                    .await?
+                }
             };
 
             Ok(filter_objects(
@@ -278,6 +304,7 @@ pub async fn list_tables(
 
 async fn list_columns(
     pool: &EnginePool,
+    connection_url: Option<&str>,
     schema: Option<&str>,
     keyword: Option<&str>,
 ) -> Result<Vec<SchemaObject>, sqlx::Error> {
@@ -317,24 +344,27 @@ async fn list_columns(
         }
         EngineKind::Mysql => {
             let pool = pool.mysql().expect("mysql");
-            let schema = resolve_mysql_schema(pool, schema).await?;
-            let rows = if schema.is_empty() {
-                sqlx::query(
-                    "SELECT table_schema, table_name, column_name, data_type, is_nullable \
-                     FROM information_schema.columns \
-                     ORDER BY table_schema, table_name, ordinal_position",
-                )
-                .fetch_all(pool)
-                .await?
-            } else {
-                sqlx::query(
-                    "SELECT table_schema, table_name, column_name, data_type, is_nullable \
-                     FROM information_schema.columns WHERE table_schema = ? \
-                     ORDER BY table_name, ordinal_position",
-                )
-                .bind(&schema)
-                .fetch_all(pool)
-                .await?
+            let scope = resolve_mysql_schema(pool, schema, connection_url).await?;
+            let rows = match &scope {
+                MysqlSchemaScope::All => {
+                    sqlx::query(
+                        "SELECT table_schema, table_name, column_name, data_type, is_nullable \
+                         FROM information_schema.columns \
+                         ORDER BY table_schema, table_name, ordinal_position",
+                    )
+                    .fetch_all(pool)
+                    .await?
+                }
+                MysqlSchemaScope::One(schema_name) => {
+                    sqlx::query(
+                        "SELECT table_schema, table_name, column_name, data_type, is_nullable \
+                         FROM information_schema.columns WHERE table_schema = ? \
+                         ORDER BY table_name, ordinal_position",
+                    )
+                    .bind(schema_name)
+                    .fetch_all(pool)
+                    .await?
+                }
             };
             Ok(filter_objects(
                 map_mysql_column_rows_to_schema_objects(&rows, None),
@@ -379,6 +409,7 @@ async fn list_columns(
 
 pub async fn describe_table(
     pool: &EnginePool,
+    connection_url: Option<&str>,
     schema: Option<&str>,
     table: &str,
 ) -> Result<SchemaObject, sqlx::Error> {
@@ -393,13 +424,16 @@ pub async fn describe_table(
             let pool = pool.mysql().expect("mysql");
             let (schema_from_table, table_only) = split_mysql_table(table);
             let table_name = normalize_mysql_ident(table_only);
-            let resolved = resolve_mysql_schema(pool, schema).await?;
-            let schema = if !resolved.is_empty() {
-                normalize_mysql_ident(&resolved)
-            } else {
-                schema_from_table
+            let resolved = resolve_mysql_schema(pool, schema, connection_url).await?;
+            let schema = match resolved {
+                MysqlSchemaScope::One(name) => normalize_mysql_ident(&name),
+                MysqlSchemaScope::All => schema_from_table
                     .map(|s| normalize_mysql_ident(&s))
-                    .unwrap_or_default()
+                    .ok_or_else(|| {
+                        sqlx::Error::Configuration(
+                            "describe_table requires schema when searching all databases".into(),
+                        )
+                    })?,
             };
             (schema, table_name)
         }
@@ -428,10 +462,10 @@ pub async fn describe_table(
         }
         EngineKind::Mysql => {
             let pool = pool.mysql().expect("mysql");
-            let mut columns =
-                mysql_columns_from_information_schema(pool, &schema, &table_name).await?;
+            let mut columns = mysql_columns_from_show(pool, &schema, &table_name).await?;
             if columns.is_empty() {
-                columns = mysql_columns_from_show(pool, &schema, &table_name).await?;
+                columns =
+                    mysql_columns_from_information_schema(pool, &schema, &table_name).await?;
             }
             columns
         }
@@ -446,7 +480,7 @@ pub async fn describe_table(
     } else {
         Some(schema.as_str())
     };
-    let indexes = list_indexes(pool, index_schema, Some(&table_name), None)
+    let indexes = list_indexes(pool, connection_url, index_schema, Some(&table_name), None)
         .await?
         .into_iter()
         .map(|o| IndexInfo {
@@ -477,6 +511,7 @@ pub async fn describe_table(
 
 pub async fn list_indexes(
     pool: &EnginePool,
+    connection_url: Option<&str>,
     schema: Option<&str>,
     table: Option<&str>,
     keyword: Option<&str>,
@@ -525,30 +560,42 @@ pub async fn list_indexes(
         }
         EngineKind::Mysql => {
             let pool = pool.mysql().expect("mysql");
-            let rows = match (schema, table) {
-                (Some(schema), Some(table)) => {
+            let scope = resolve_mysql_schema(pool, schema, connection_url).await?;
+            let rows = match (&scope, table) {
+                (MysqlSchemaScope::One(schema_name), Some(table)) => {
                     sqlx::query(
                         "SELECT index_name, column_name, non_unique \
                          FROM information_schema.statistics \
                          WHERE table_schema = ? AND table_name = ? \
                          ORDER BY index_name, seq_in_index",
                     )
-                    .bind(schema)
+                    .bind(schema_name)
                     .bind(table)
                     .fetch_all(pool)
                     .await?
                 }
-                (Some(schema), None) => {
+                (MysqlSchemaScope::One(schema_name), None) => {
                     sqlx::query(
                         "SELECT index_name, column_name, non_unique \
                          FROM information_schema.statistics \
                          WHERE table_schema = ? ORDER BY index_name, seq_in_index",
                     )
-                    .bind(schema)
+                    .bind(schema_name)
                     .fetch_all(pool)
                     .await?
                 }
-                _ => {
+                (MysqlSchemaScope::All, Some(table)) => {
+                    sqlx::query(
+                        "SELECT table_schema, index_name, column_name, non_unique \
+                         FROM information_schema.statistics \
+                         WHERE table_name = ? \
+                         ORDER BY table_schema, index_name, seq_in_index",
+                    )
+                    .bind(table)
+                    .fetch_all(pool)
+                    .await?
+                }
+                (MysqlSchemaScope::All, None) => {
                     sqlx::query(
                         "SELECT table_schema, index_name, column_name, non_unique \
                          FROM information_schema.statistics \
@@ -564,7 +611,7 @@ pub async fn list_indexes(
             let mut map: BTreeMap<String, (Vec<String>, bool, Option<String>)> =
                 BTreeMap::new();
             for row in &rows {
-                if schema.is_none() && table.is_none() {
+                if matches!(scope, MysqlSchemaScope::All) && table.is_none() {
                     let sch: String = row.try_get(0).ok().unwrap_or_default();
                     let name: String = row.try_get(1).ok().unwrap_or_default();
                     let col: String = row.try_get(2).ok().unwrap_or_default();
@@ -672,6 +719,10 @@ async fn sqlite_columns_from_pragma(
                 name,
                 data_type,
                 nullable: notnull == 0,
+                key: None,
+                extra: None,
+                comment: None,
+                default: None,
             })
         })
         .collect())
@@ -744,13 +795,47 @@ fn filter_objects(mut objects: Vec<SchemaObject>, keyword: Option<&str>) -> Vec<
 async fn resolve_mysql_schema(
     pool: &MySqlPool,
     schema: Option<&str>,
-) -> Result<String, sqlx::Error> {
-    if let Some(s) = schema.filter(|s| !s.is_empty()) {
-        return Ok(s.to_string());
+    connection_url: Option<&str>,
+) -> Result<MysqlSchemaScope, sqlx::Error> {
+    if let Some(s) = schema {
+        if s == "*" {
+            return Ok(MysqlSchemaScope::All);
+        }
+        if !s.is_empty() {
+            return Ok(MysqlSchemaScope::One(s.to_string()));
+        }
     }
     let row = sqlx::query("SELECT DATABASE()").fetch_one(pool).await?;
     let db: Option<String> = row.try_get(0)?;
-    Ok(db.unwrap_or_default())
+    if let Some(db) = db.filter(|s| !s.is_empty()) {
+        return Ok(MysqlSchemaScope::One(db));
+    }
+    if let Some(url) = connection_url {
+        if let Some(db) = database_from_mysql_url(url) {
+            return Ok(MysqlSchemaScope::One(db));
+        }
+    }
+    Err(sqlx::Error::Configuration(
+        "no default schema; pass schema or connect with database in URL".into(),
+    ))
+}
+
+#[derive(Debug, Clone)]
+enum MysqlSchemaScope {
+    All,
+    One(String),
+}
+
+fn database_from_mysql_url(url: &str) -> Option<String> {
+    let rest = url.strip_prefix("mysql://")?;
+    let after_host = rest.split('@').next_back()?;
+    let db = after_host.split('/').nth(1)?;
+    let db = db.split('?').next()?.trim();
+    if db.is_empty() {
+        None
+    } else {
+        Some(db.to_string())
+    }
 }
 
 fn parse_is_nullable(raw: &str) -> bool {
@@ -813,6 +898,10 @@ fn column_info_from_mysql_column_row(r: &MySqlRow) -> Option<ColumnInfo> {
         name,
         data_type,
         nullable,
+        key: None,
+        extra: None,
+        comment: None,
+        default: None,
     })
 }
 
@@ -880,6 +969,10 @@ fn column_info_from_pg_info_schema_row(r: &PgRow) -> Option<ColumnInfo> {
         name,
         data_type,
         nullable,
+        key: None,
+        extra: None,
+        comment: None,
+        default: None,
     })
 }
 
@@ -948,6 +1041,10 @@ async fn mysql_columns_from_show(
                     name,
                     data_type,
                     nullable: parse_is_nullable(&null_raw),
+                    key: mysql_decode_text_by_name(r, "Key"),
+                    extra: mysql_decode_text_by_name(r, "Extra"),
+                    comment: mysql_decode_text_by_name(r, "Comment"),
+                    default: mysql_decode_text_by_name(r, "Default"),
                 });
             }
             _ => tracing::warn!("describe_table/show: skipped row decode failed"),
@@ -960,6 +1057,199 @@ async fn mysql_columns_from_show(
         );
     }
     Ok(out)
+}
+
+pub async fn list_foreign_keys(
+    pool: &EnginePool,
+    connection_url: Option<&str>,
+    schema: Option<&str>,
+    table: Option<&str>,
+) -> Result<Vec<ForeignKeyInfo>, sqlx::Error> {
+    match pool.engine() {
+        EngineKind::Postgres => {
+            let pool = pool.postgres().expect("postgres");
+            let schema_name = schema.unwrap_or("public");
+            let rows = if let Some(table) = table {
+                sqlx::query(
+                    "SELECT tc.constraint_name, kcu.table_name, kcu.column_name, \
+                     ccu.table_name AS foreign_table_name, ccu.column_name AS foreign_column_name, \
+                     rc.delete_rule, rc.update_rule \
+                     FROM information_schema.table_constraints AS tc \
+                     JOIN information_schema.key_column_usage AS kcu \
+                       ON tc.constraint_name = kcu.constraint_name \
+                      AND tc.table_schema = kcu.table_schema \
+                     JOIN information_schema.constraint_column_usage AS ccu \
+                       ON ccu.constraint_name = tc.constraint_name \
+                      AND ccu.table_schema = tc.table_schema \
+                     JOIN information_schema.referential_constraints AS rc \
+                       ON rc.constraint_name = tc.constraint_name \
+                      AND rc.constraint_schema = tc.table_schema \
+                     WHERE tc.constraint_type = 'FOREIGN KEY' \
+                       AND tc.table_schema = $1 AND kcu.table_name = $2 \
+                     ORDER BY tc.constraint_name, kcu.ordinal_position",
+                )
+                .bind(schema_name)
+                .bind(table)
+                .fetch_all(pool)
+                .await?
+            } else {
+                sqlx::query(
+                    "SELECT tc.constraint_name, kcu.table_name, kcu.column_name, \
+                     ccu.table_name AS foreign_table_name, ccu.column_name AS foreign_column_name, \
+                     rc.delete_rule, rc.update_rule \
+                     FROM information_schema.table_constraints AS tc \
+                     JOIN information_schema.key_column_usage AS kcu \
+                       ON tc.constraint_name = kcu.constraint_name \
+                      AND tc.table_schema = kcu.table_schema \
+                     JOIN information_schema.constraint_column_usage AS ccu \
+                       ON ccu.constraint_name = tc.constraint_name \
+                      AND ccu.table_schema = tc.table_schema \
+                     JOIN information_schema.referential_constraints AS rc \
+                       ON rc.constraint_name = tc.constraint_name \
+                      AND rc.constraint_schema = tc.table_schema \
+                     WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = $1 \
+                     ORDER BY tc.constraint_name, kcu.ordinal_position",
+                )
+                .bind(schema_name)
+                .fetch_all(pool)
+                .await?
+            };
+            Ok(group_foreign_key_rows_pg(&rows))
+        }
+        EngineKind::Mysql => {
+            let pool = pool.mysql().expect("mysql");
+            let scope = resolve_mysql_schema(pool, schema, connection_url).await?;
+            let schema_name = match scope {
+                MysqlSchemaScope::One(name) => name,
+                MysqlSchemaScope::All => {
+                    return Err(sqlx::Error::Configuration(
+                        "list_foreign_keys requires schema on MySQL (or omit for current database)"
+                            .into(),
+                    ))
+                }
+            };
+            let rows = if let Some(table) = table {
+                sqlx::query(
+                    "SELECT kcu.CONSTRAINT_NAME, kcu.TABLE_NAME, kcu.COLUMN_NAME, \
+                     kcu.REFERENCED_TABLE_NAME, kcu.REFERENCED_COLUMN_NAME, \
+                     rc.DELETE_RULE, rc.UPDATE_RULE \
+                     FROM information_schema.KEY_COLUMN_USAGE kcu \
+                     JOIN information_schema.REFERENTIAL_CONSTRAINTS rc \
+                       ON kcu.CONSTRAINT_NAME = rc.CONSTRAINT_NAME \
+                      AND kcu.CONSTRAINT_SCHEMA = rc.CONSTRAINT_SCHEMA \
+                     WHERE kcu.TABLE_SCHEMA = ? AND kcu.TABLE_NAME = ? \
+                       AND kcu.REFERENCED_TABLE_NAME IS NOT NULL \
+                     ORDER BY kcu.CONSTRAINT_NAME, kcu.ORDINAL_POSITION",
+                )
+                .bind(&schema_name)
+                .bind(table)
+                .fetch_all(pool)
+                .await?
+            } else {
+                sqlx::query(
+                    "SELECT kcu.CONSTRAINT_NAME, kcu.TABLE_NAME, kcu.COLUMN_NAME, \
+                     kcu.REFERENCED_TABLE_NAME, kcu.REFERENCED_COLUMN_NAME, \
+                     rc.DELETE_RULE, rc.UPDATE_RULE \
+                     FROM information_schema.KEY_COLUMN_USAGE kcu \
+                     JOIN information_schema.REFERENTIAL_CONSTRAINTS rc \
+                       ON kcu.CONSTRAINT_NAME = rc.CONSTRAINT_NAME \
+                      AND kcu.CONSTRAINT_SCHEMA = rc.CONSTRAINT_SCHEMA \
+                     WHERE kcu.TABLE_SCHEMA = ? AND kcu.REFERENCED_TABLE_NAME IS NOT NULL \
+                     ORDER BY kcu.CONSTRAINT_NAME, kcu.ORDINAL_POSITION",
+                )
+                .bind(&schema_name)
+                .fetch_all(pool)
+                .await?
+            };
+            Ok(group_foreign_key_rows_mysql(&rows))
+        }
+        EngineKind::Sqlite => {
+            let pool = pool.sqlite().expect("sqlite");
+            let table_name = table.ok_or_else(|| {
+                sqlx::Error::Configuration("list_foreign_keys on SQLite requires table".into())
+            })?;
+            let pragma = format!("PRAGMA foreign_key_list({})", sqlite_quote_literal(table_name));
+            let rows = sqlx::query(&pragma).fetch_all(pool).await?;
+            Ok(rows
+                .iter()
+                .filter_map(|r| {
+                    let id: i64 = r.try_get("id").ok()?;
+                    let ref_table: String = r.try_get("table").ok()?;
+                    let from_col: String = r.try_get("from").ok()?;
+                    let to_col: String = r.try_get("to").ok()?;
+                    let on_delete: String = r.try_get("on_delete").ok()?;
+                    let on_update: String = r.try_get("on_update").ok()?;
+                    Some(ForeignKeyInfo {
+                        name: format!("fk_{id}"),
+                        table: table_name.to_string(),
+                        columns: vec![from_col],
+                        ref_table,
+                        ref_columns: vec![to_col],
+                        on_delete: Some(on_delete),
+                        on_update: Some(on_update),
+                    })
+                })
+                .collect())
+        }
+    }
+}
+
+fn group_foreign_key_rows_mysql(rows: &[MySqlRow]) -> Vec<ForeignKeyInfo> {
+    use std::collections::BTreeMap;
+    let mut map: BTreeMap<String, ForeignKeyInfo> = BTreeMap::new();
+    for row in rows {
+        let name: String = row.try_get(0).ok().unwrap_or_default();
+        let table: String = row.try_get(1).ok().unwrap_or_default();
+        let col: String = row.try_get(2).ok().unwrap_or_default();
+        let ref_table: String = row.try_get(3).ok().unwrap_or_default();
+        let ref_col: String = row.try_get(4).ok().unwrap_or_default();
+        let on_delete: String = row.try_get(5).ok().unwrap_or_default();
+        let on_update: String = row.try_get(6).ok().unwrap_or_default();
+        map.entry(name.clone())
+            .and_modify(|fk| {
+                fk.columns.push(col.clone());
+                fk.ref_columns.push(ref_col.clone());
+            })
+            .or_insert(ForeignKeyInfo {
+                name,
+                table,
+                columns: vec![col],
+                ref_table,
+                ref_columns: vec![ref_col],
+                on_delete: Some(on_delete),
+                on_update: Some(on_update),
+            });
+    }
+    map.into_values().collect()
+}
+
+fn group_foreign_key_rows_pg(rows: &[PgRow]) -> Vec<ForeignKeyInfo> {
+    use std::collections::BTreeMap;
+    let mut map: BTreeMap<String, ForeignKeyInfo> = BTreeMap::new();
+    for row in rows {
+        let name: String = row.try_get(0).ok().unwrap_or_default();
+        let table: String = row.try_get(1).ok().unwrap_or_default();
+        let col: String = row.try_get(2).ok().unwrap_or_default();
+        let ref_table: String = row.try_get(3).ok().unwrap_or_default();
+        let ref_col: String = row.try_get(4).ok().unwrap_or_default();
+        let on_delete: String = row.try_get(5).ok().unwrap_or_default();
+        let on_update: String = row.try_get(6).ok().unwrap_or_default();
+        map.entry(name.clone())
+            .and_modify(|fk| {
+                fk.columns.push(col.clone());
+                fk.ref_columns.push(ref_col.clone());
+            })
+            .or_insert(ForeignKeyInfo {
+                name,
+                table,
+                columns: vec![col],
+                ref_table,
+                ref_columns: vec![ref_col],
+                on_delete: Some(on_delete),
+                on_update: Some(on_update),
+            });
+    }
+    map.into_values().collect()
 }
 
 #[cfg(test)]

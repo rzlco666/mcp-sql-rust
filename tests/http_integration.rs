@@ -24,7 +24,12 @@ use sqlx::mysql::MySqlPoolOptions;
 use sqlx::postgres::PgPoolOptions;
 use tower::ServiceExt;
 
+fn force_columnar_test_format() {
+    std::env::set_var("MCP_SQL_FORMAT", "columnar");
+}
+
 async fn sqlite_config(write_mode: WriteMode) -> AppConfig {
+    force_columnar_test_format();
     let pool = SqlitePoolOptions::new()
         .max_connections(4)
         .connect("sqlite::memory:")
@@ -33,12 +38,13 @@ async fn sqlite_config(write_mode: WriteMode) -> AppConfig {
     let mut sources = HashMap::new();
     sources.insert(
         "default".into(),
-        ResolvedSource {
-            name: "default".into(),
-            url: "sqlite::memory:".into(),
-            engine: EngineKind::Sqlite,
-            pool: EnginePool::Sqlite(pool),
-        },
+        ResolvedSource::with_connected_pool(
+            "default",
+            "sqlite::memory:".into(),
+            EngineKind::Sqlite,
+            EnginePool::Sqlite(pool),
+            !write_mode.allows_dml(),
+        ),
     );
     AppConfig {
         write_mode,
@@ -51,6 +57,7 @@ async fn sqlite_config(write_mode: WriteMode) -> AppConfig {
         default_source: "default".into(),
         sources,
         searched_paths: vec![],
+        workspace: None,
     }
 }
 
@@ -97,6 +104,7 @@ async fn seed_users(config: &Arc<AppConfig>) {
             page_offset: None,
             page_size: None,
             source: None,
+            format: None,
         },
     )
     .await;
@@ -109,6 +117,7 @@ async fn seed_users(config: &Arc<AppConfig>) {
             page_offset: None,
             page_size: None,
             source: None,
+            format: None,
         },
     )
     .await;
@@ -150,6 +159,7 @@ async fn guard_blocks_dml_in_readonly() {
             page_offset: None,
             page_size: None,
             source: None,
+            format: None,
         },
     )
     .await;
@@ -168,6 +178,7 @@ async fn guard_blocks_ddl_in_readonly() {
             page_offset: None,
             page_size: None,
             source: None,
+            format: None,
         },
     )
     .await;
@@ -186,6 +197,7 @@ async fn guard_blocks_transaction_control() {
             page_offset: None,
             page_size: None,
             source: None,
+            format: None,
         },
     )
     .await;
@@ -204,6 +216,7 @@ async fn guard_blocks_multi_statement() {
             page_offset: None,
             page_size: None,
             source: None,
+            format: None,
         },
     )
     .await;
@@ -222,6 +235,7 @@ async fn guard_blocks_empty_query() {
             page_offset: None,
             page_size: None,
             source: None,
+            format: None,
         },
     )
     .await;
@@ -240,6 +254,7 @@ async fn guard_blocks_grant() {
             page_offset: None,
             page_size: None,
             source: None,
+            format: None,
         },
     )
     .await;
@@ -261,6 +276,7 @@ async fn params_basic_select() {
             page_offset: None,
             page_size: None,
             source: None,
+            format: None,
         },
     )
     .await;
@@ -282,6 +298,7 @@ async fn params_unicode_and_emoji() {
             page_offset: None,
             page_size: None,
             source: None,
+            format: None,
         },
     )
     .await;
@@ -294,6 +311,7 @@ async fn params_unicode_and_emoji() {
             page_offset: None,
             page_size: None,
             source: None,
+            format: None,
         },
     )
     .await;
@@ -312,6 +330,7 @@ async fn params_null_value() {
             page_offset: None,
             page_size: None,
             source: None,
+            format: None,
         },
     )
     .await;
@@ -333,6 +352,7 @@ async fn params_missing_placeholder_rejected() {
             page_offset: None,
             page_size: None,
             source: None,
+            format: None,
         },
     )
     .await;
@@ -351,6 +371,7 @@ async fn params_extra_rejected() {
             page_offset: None,
             page_size: None,
             source: None,
+            format: None,
         },
     )
     .await;
@@ -373,6 +394,7 @@ async fn injection_param_treated_as_data() {
             page_offset: None,
             page_size: None,
             source: None,
+            format: None,
         },
     )
     .await;
@@ -387,6 +409,7 @@ async fn injection_param_treated_as_data() {
             page_offset: None,
             page_size: None,
             source: None,
+            format: None,
         },
     )
     .await;
@@ -406,6 +429,7 @@ async fn injection_union_in_param_is_literal() {
             page_offset: None,
             page_size: None,
             source: None,
+            format: None,
         },
     )
     .await;
@@ -426,6 +450,7 @@ async fn injection_or_in_param_is_literal() {
             page_offset: None,
             page_size: None,
             source: None,
+            format: None,
         },
     )
     .await;
@@ -447,6 +472,7 @@ async fn types_large_int_and_float() {
             page_offset: None,
             page_size: None,
             source: None,
+            format: None,
         },
     )
     .await;
@@ -467,6 +493,7 @@ async fn count_serializes_as_number_not_bool() {
             page_offset: None,
             page_size: None,
             source: None,
+            format: None,
         },
     )
     .await;
@@ -490,6 +517,7 @@ async fn batch_legacy_strings() {
             page_offset: None,
             page_size: None,
             source: None,
+            format: None,
         },
     )
     .await;
@@ -512,6 +540,7 @@ async fn batch_parameterized() {
             page_offset: None,
             page_size: None,
             source: None,
+            format: None,
         },
     )
     .await;
@@ -533,6 +562,7 @@ async fn batch_mixed_valid_and_invalid() {
             page_offset: None,
             page_size: None,
             source: None,
+            format: None,
         },
     )
     .await;
@@ -558,6 +588,7 @@ async fn pagination_offset_and_size() {
             page_offset: None,
             page_size: None,
             source: None,
+            format: None,
         },
     )
     .await;
@@ -571,6 +602,7 @@ async fn pagination_offset_and_size() {
                 page_offset: None,
                 page_size: None,
                 source: None,
+                format: None,
             },
         )
         .await;
@@ -584,6 +616,7 @@ async fn pagination_offset_and_size() {
             page_offset: Some(0),
             page_size: Some(40),
             source: None,
+            format: None,
         },
     )
     .await;
@@ -599,6 +632,7 @@ async fn pagination_offset_and_size() {
             page_offset: Some(40),
             page_size: Some(40),
             source: None,
+            format: None,
         },
     )
     .await;
@@ -612,8 +646,8 @@ async fn pagination_offset_and_size() {
 async fn describe_table_returns_columns() {
     let config = Arc::new(sqlite_config(WriteMode::AllowDdl).await);
     seed_users(&config).await;
-    let pool = config.source(None).unwrap().pool.clone();
-    let object = describe_table(&pool, Some("main"), "users")
+    let pool = config.source(None).unwrap().pool().await.expect("pool");
+    let object = describe_table(&pool, None, Some("main"), "users")
         .await
         .expect("describe");
     let cols = object.columns.expect("columns");
@@ -648,6 +682,7 @@ async fn search_objects_finds_table() {
 // --- Phase 2: PostgreSQL (docker-compose) ---
 
 async fn postgres_config() -> Option<AppConfig> {
+    force_columnar_test_format();
     let url = std::env::var("POSTGRES_DATABASE_URL")
         .or_else(|_| std::env::var("DATABASE_URL"))
         .ok()?;
@@ -662,12 +697,13 @@ async fn postgres_config() -> Option<AppConfig> {
     let mut sources = HashMap::new();
     sources.insert(
         "default".into(),
-        ResolvedSource {
-            name: "default".into(),
-            url: url.clone(),
-            engine: EngineKind::Postgres,
-            pool: EnginePool::Postgres(pool),
-        },
+        ResolvedSource::with_connected_pool(
+            "default",
+            url.clone(),
+            EngineKind::Postgres,
+            EnginePool::Postgres(pool),
+            true,
+        ),
     );
     Some(AppConfig {
         write_mode: WriteMode::ReadOnly,
@@ -680,6 +716,7 @@ async fn postgres_config() -> Option<AppConfig> {
         default_source: "default".into(),
         sources,
         searched_paths: vec![],
+        workspace: None,
     })
 }
 
@@ -696,6 +733,7 @@ async fn postgres_parameterized_select() {
             page_offset: None,
             page_size: None,
             source: None,
+            format: None,
         },
     )
     .await;
@@ -722,6 +760,7 @@ async fn postgres_healthz() {
 // --- Phase 2: MySQL (docker-compose) ---
 
 async fn mysql_config() -> Option<AppConfig> {
+    force_columnar_test_format();
     let url = std::env::var("MYSQL_DATABASE_URL")
         .or_else(|_| std::env::var("DATABASE_URL"))
         .ok()?;
@@ -736,12 +775,13 @@ async fn mysql_config() -> Option<AppConfig> {
     let mut sources = HashMap::new();
     sources.insert(
         "default".into(),
-        ResolvedSource {
-            name: "default".into(),
-            url: url.clone(),
-            engine: EngineKind::Mysql,
-            pool: EnginePool::Mysql(pool),
-        },
+        ResolvedSource::with_connected_pool(
+            "default",
+            url.clone(),
+            EngineKind::Mysql,
+            EnginePool::Mysql(pool),
+            true,
+        ),
     );
     Some(AppConfig {
         write_mode: WriteMode::ReadOnly,
@@ -754,6 +794,7 @@ async fn mysql_config() -> Option<AppConfig> {
         default_source: "default".into(),
         sources,
         searched_paths: vec![],
+        workspace: None,
     })
 }
 
@@ -772,6 +813,7 @@ async fn mysql_show_processlist_allowed() {
             page_offset: None,
             page_size: None,
             source: None,
+            format: None,
         },
     )
     .await;
@@ -792,6 +834,7 @@ async fn mysql_count_serializes_as_number() {
             page_offset: None,
             page_size: None,
             source: None,
+            format: None,
         },
     )
     .await;
@@ -802,13 +845,14 @@ async fn mysql_count_serializes_as_number() {
 #[ignore = "requires MYSQL_DATABASE_URL"]
 async fn mysql_describe_table_has_columns() {
     let config = Arc::new(mysql_config().await.expect("mysql dsn"));
-    let pool = config.source(None).unwrap().pool.clone();
+    let source = config.source(None).unwrap();
+    let pool = source.pool().await.expect("pool");
     let mysql = pool.mysql().unwrap();
     let schema: String = sqlx::query_scalar("SELECT DATABASE()")
         .fetch_one(mysql)
         .await
         .expect("schema");
-    let object = describe_table(&pool, Some(&schema), "users")
+    let object = describe_table(&pool, Some(&source.url), Some(&schema), "users")
         .await
         .expect("describe demo.users");
     let cols = object.columns.unwrap_or_default();
