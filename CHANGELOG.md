@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.5.1 — 2026-07-14
+
+### P0 — Type fidelity
+
+- **MySQL text decode:** `VARCHAR` / `CHAR` / `TEXT` / `ENUM` / `SET` / `JSON` in `execute_sql` serialize as UTF-8 JSON strings (no longer hex). Binary types (`BLOB` / `BINARY` / `VARBINARY`) remain hex.
+- Shared MySQL text helpers used by schema tools and execute path (`mysql_decode_text_by_*`).
+
+### P1 — Connect UX
+
+- **`--connect-timeout SECS`** (default **2s**, was fixed 5s) for pool acquire timeout on first lazy connect.
+
 ## 0.5.0 — 2026-07-13
 
 ### P0 — Blockers

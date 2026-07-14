@@ -27,6 +27,78 @@ fn mysql_type_is_bool(type_name: &str) -> bool {
     type_name.eq_ignore_ascii_case("BOOL") || type_name.eq_ignore_ascii_case("BOOLEAN")
 }
 
+/// MySQL character / string-ish types that should decode as UTF-8 JSON strings.
+pub fn mysql_type_is_text(type_name: &str) -> bool {
+    let t = type_name.to_ascii_uppercase();
+    matches!(
+        t.as_str(),
+        "VARCHAR"
+            | "CHAR"
+            | "TEXT"
+            | "TINYTEXT"
+            | "MEDIUMTEXT"
+            | "LONGTEXT"
+            | "ENUM"
+            | "SET"
+            | "JSON"
+            | "VAR_STRING"
+            | "STRING"
+    ) || t.contains("CHAR")
+        || t.contains("TEXT")
+}
+
+/// MySQL binary types that should stay hex-encoded for agents.
+pub fn mysql_type_is_binary(type_name: &str) -> bool {
+    let t = type_name.to_ascii_uppercase();
+    matches!(
+        t.as_str(),
+        "BLOB"
+            | "TINYBLOB"
+            | "MEDIUMBLOB"
+            | "LONGBLOB"
+            | "BINARY"
+            | "VARBINARY"
+            | "BIT"
+            | "GEOMETRY"
+            | "POINT"
+            | "LINESTRING"
+            | "POLYGON"
+    ) || t.contains("BLOB")
+        || t.contains("BINARY")
+}
+
+fn utf8_from_bytes(v: Vec<u8>) -> String {
+    String::from_utf8(v).unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned())
+}
+
+/// Decode a MySQL cell as human-readable text (schema tools + execute path).
+pub fn mysql_decode_text_by_index(row: &MySqlRow, index: usize) -> Option<String> {
+    if let Ok(v) = row.try_get::<String, _>(index) {
+        return Some(v);
+    }
+    if let Ok(v) = row.try_get::<&str, _>(index) {
+        return Some(v.to_string());
+    }
+    if let Ok(v) = row.try_get::<Vec<u8>, _>(index) {
+        return Some(utf8_from_bytes(v));
+    }
+    None
+}
+
+/// Decode a named MySQL column as human-readable text.
+pub fn mysql_decode_text_by_name(row: &MySqlRow, name: &str) -> Option<String> {
+    if let Ok(v) = row.try_get::<String, _>(name) {
+        return Some(v);
+    }
+    if let Ok(v) = row.try_get::<&str, _>(name) {
+        return Some(v.to_string());
+    }
+    if let Ok(v) = row.try_get::<Vec<u8>, _>(name) {
+        return Some(utf8_from_bytes(v));
+    }
+    None
+}
+
 pub fn decode_mysql_cell(row: &MySqlRow, index: usize) -> Result<Value, sqlx::Error> {
     let raw = row.try_get_raw(index)?;
     if raw.is_null() {
@@ -69,16 +141,36 @@ pub fn decode_mysql_cell(row: &MySqlRow, index: usize) -> Result<Value, sqlx::Er
     if let Ok(v) = row.try_get::<DateTime<Utc>, _>(index) {
         return Ok(Value::String(v.to_rfc3339()));
     }
-    if let Ok(v) = row.try_get::<Vec<u8>, _>(index) {
-        return Ok(Value::String(bytes_to_hex(&v)));
+
+    let type_name = row.column(index).type_info().name();
+
+    if mysql_type_is_text(type_name) {
+        if let Some(s) = mysql_decode_text_by_index(row, index) {
+            return Ok(Value::String(s));
+        }
     }
-    if mysql_type_is_bool(row.column(index).type_info().name()) {
+
+    if mysql_type_is_binary(type_name) {
+        if let Ok(v) = row.try_get::<Vec<u8>, _>(index) {
+            return Ok(Value::String(bytes_to_hex(&v)));
+        }
+    }
+
+    if mysql_type_is_bool(type_name) {
         if let Ok(v) = row.try_get::<bool, _>(index) {
             return Ok(Value::Bool(v));
         }
     }
+
     if let Ok(v) = row.try_get::<String, _>(index) {
         return Ok(Value::String(v));
+    }
+    // Fallback: prefer UTF-8 when bytes are valid text; otherwise hex (true binary).
+    if let Ok(v) = row.try_get::<Vec<u8>, _>(index) {
+        return Ok(match String::from_utf8(v) {
+            Ok(s) => Value::String(s),
+            Err(e) => Value::String(bytes_to_hex(e.as_bytes())),
+        });
     }
     Ok(Value::Null)
 }
@@ -157,5 +249,53 @@ mod tests {
         assert!(mysql_type_is_bool("BOOLEAN"));
         assert!(!mysql_type_is_bool("BIGINT"));
         assert!(!mysql_type_is_bool("TINYINT"));
+    }
+
+    #[test]
+    fn mysql_type_is_text_recognizes_string_types() {
+        for t in [
+            "VARCHAR",
+            "CHAR",
+            "TEXT",
+            "TINYTEXT",
+            "MEDIUMTEXT",
+            "LONGTEXT",
+            "ENUM",
+            "SET",
+            "JSON",
+            "VAR_STRING",
+            "varchar",
+        ] {
+            assert!(mysql_type_is_text(t), "{t} should be text");
+            assert!(!mysql_type_is_binary(t), "{t} should not be binary");
+        }
+    }
+
+    #[test]
+    fn mysql_type_is_binary_recognizes_blob_types() {
+        for t in [
+            "BLOB",
+            "TINYBLOB",
+            "VARBINARY",
+            "BINARY",
+            "BIT",
+            "LONGBLOB",
+        ] {
+            assert!(mysql_type_is_binary(t), "{t} should be binary");
+            assert!(!mysql_type_is_text(t), "{t} should not be text");
+        }
+    }
+
+    #[test]
+    fn bytes_to_hex_encodes_ascii() {
+        assert_eq!(bytes_to_hex(b"edoc"), "65646f63");
+    }
+
+    #[test]
+    fn utf8_from_bytes_valid_and_lossy() {
+        assert_eq!(utf8_from_bytes(b"edoc_pid_dev".to_vec()), "edoc_pid_dev");
+        let bad = vec![0xff, 0xfe, b'a'];
+        let s = utf8_from_bytes(bad);
+        assert!(s.contains('a'));
     }
 }

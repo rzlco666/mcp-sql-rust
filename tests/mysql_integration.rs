@@ -234,3 +234,54 @@ async fn mysql_parameterized_select_binds_value() {
         .expect("data");
     assert_eq!(result.rows[0][0], serde_json::json!(42));
 }
+
+#[tokio::test]
+#[ignore = "requires MYSQL_DATABASE_URL or mysql:// DATABASE_URL"]
+async fn mysql_text_values_decode_as_readable_strings_not_hex() {
+    let pool = mysql_pool()
+        .await
+        .expect("set MYSQL_DATABASE_URL to a mysql:// DSN");
+
+    let result = execute_query(
+        &pool,
+        "SELECT DATABASE() AS db, 'edoc_pid_dev' AS literal, CAST('hello' AS CHAR) AS as_char",
+        &[],
+        &exec_opts(),
+    )
+    .await
+    .expect("execute")
+    .data
+    .expect("data");
+
+    let row = &result.rows[0];
+    let db = row[0].as_str().expect("DATABASE() string");
+    assert!(
+        !db.is_empty() && !db.chars().all(|c| c.is_ascii_hexdigit()),
+        "DATABASE() must be readable UTF-8, not hex: {db}"
+    );
+    assert_eq!(row[1].as_str(), Some("edoc_pid_dev"));
+    assert_eq!(row[2].as_str(), Some("hello"));
+}
+
+#[tokio::test]
+#[ignore = "requires MYSQL_DATABASE_URL or mysql:// DATABASE_URL"]
+async fn mysql_binary_values_stay_hex_encoded() {
+    let pool = mysql_pool()
+        .await
+        .expect("set MYSQL_DATABASE_URL to a mysql:// DSN");
+
+    let result = execute_query(
+        &pool,
+        "SELECT CAST('xy' AS BINARY(2)) AS b, UNHEX('65646f63') AS hx",
+        &[],
+        &exec_opts(),
+    )
+    .await
+    .expect("execute")
+    .data
+    .expect("data");
+
+    let row = &result.rows[0];
+    assert_eq!(row[0].as_str(), Some("7879"));
+    assert_eq!(row[1].as_str(), Some("65646f63"));
+}

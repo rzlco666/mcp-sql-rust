@@ -7,7 +7,10 @@ pub mod value;
 
 pub use exec::{execute_batch, execute_query, BatchResult, ExecError, ExecOptions, QueryResult};
 pub use explain::{analyze_query, ExplainSummary};
-pub use pool::{detect_engine_from_url, EngineKind, EnginePool, LazyEnginePool};
+pub use pool::{
+    detect_engine_from_url, EngineKind, EnginePool, LazyEnginePool, CONNECT_TIMEOUT,
+    DEFAULT_CONNECT_TIMEOUT_SECS,
+};
 pub use schema::{
     describe_table, list_foreign_keys, list_indexes, list_schemas, list_tables, search_objects,
     ForeignKeyInfo, ObjectType, SchemaObject,

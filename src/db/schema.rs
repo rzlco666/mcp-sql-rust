@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use sqlx::{mysql::MySqlRow, postgres::PgRow, MySqlPool, Row};
 
+use crate::db::value::{mysql_decode_text_by_index, mysql_decode_text_by_name};
 use crate::db::{EngineKind, EnginePool};
 
 /// MySQL column row layout: `table_schema, table_name, column_name, data_type, is_nullable`.
@@ -857,32 +858,6 @@ fn split_mysql_table(table: &str) -> (Option<String>, &str) {
         }
     }
     (None, trimmed)
-}
-
-fn mysql_decode_text_by_index(row: &MySqlRow, index: usize) -> Option<String> {
-    if let Ok(v) = row.try_get::<String, _>(index) {
-        return Some(v);
-    }
-    if let Ok(v) = row.try_get::<&str, _>(index) {
-        return Some(v.to_string());
-    }
-    if let Ok(v) = row.try_get::<Vec<u8>, _>(index) {
-        return String::from_utf8(v).ok();
-    }
-    None
-}
-
-fn mysql_decode_text_by_name(row: &MySqlRow, name: &str) -> Option<String> {
-    if let Ok(v) = row.try_get::<String, _>(name) {
-        return Some(v);
-    }
-    if let Ok(v) = row.try_get::<&str, _>(name) {
-        return Some(v.to_string());
-    }
-    if let Ok(v) = row.try_get::<Vec<u8>, _>(name) {
-        return String::from_utf8(v).ok();
-    }
-    None
 }
 
 fn parse_mysql_is_nullable_row(row: &MySqlRow, index: usize) -> bool {
