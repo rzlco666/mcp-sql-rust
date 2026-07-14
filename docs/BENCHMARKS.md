@@ -83,7 +83,19 @@ Requirements: Node.js 20+ (`npx`), Linux recommended for RSS.
 
 | Date | Change |
 |------|--------|
+| v0.5.1 | MySQL text UTF-8 in `execute_sql` (hex only for BINARY/BLOB); connect timeout default 2s |
+| v0.5.0 | BIGINT/DECIMAL fidelity, lazy connect, schema isolation, pagination, `schema_mutate` |
 | v0.4.0 | Initial harness + WSL2 reference numbers |
+
+## Scorecard (v0.5.1 projection vs local-mysql)
+
+After hex-string fix on MySQL `execute_sql`, projected overall ≈ **9.3–9.5** (v0.5 was 8.5 with readability 5 due to hex). Primary MCP for daily agent SQL; `local-mysql` no longer needed as string-readability fallback.
+
+| Category | v0.5.0 | v0.5.1 target | local-mysql |
+|----------|--------|---------------|-------------|
+| Type fidelity | 7 | **9** | 9 |
+| Agent readability | 5 | **9** | 8 |
+| Overall | 8.5 | **~9.3–9.5** | 6.0 |
 
 ## MySQL localhost (v0.4.0 reference)
 

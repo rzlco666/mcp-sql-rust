@@ -10,7 +10,8 @@ use tokio::sync::Mutex;
 
 use crate::redact::redact_url;
 
-pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
+pub const DEFAULT_CONNECT_TIMEOUT_SECS: u64 = 2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EngineKind {
@@ -78,6 +79,7 @@ pub struct LazyEnginePool {
     engine: EngineKind,
     pool_size: u32,
     read_only: bool,
+    connect_timeout: Duration,
     inner: Arc<Mutex<Option<EnginePool>>>,
 }
 
@@ -87,12 +89,14 @@ impl LazyEnginePool {
         engine: EngineKind,
         pool_size: u32,
         read_only: bool,
+        connect_timeout: Duration,
     ) -> Self {
         Self {
             url,
             engine,
             pool_size,
             read_only,
+            connect_timeout,
             inner: Arc::new(Mutex::new(None)),
         }
     }
@@ -109,6 +113,7 @@ impl LazyEnginePool {
             engine,
             pool_size: 1,
             read_only,
+            connect_timeout: CONNECT_TIMEOUT,
             inner: Arc::new(Mutex::new(Some(pool))),
         }
     }
@@ -123,6 +128,7 @@ impl LazyEnginePool {
             self.engine,
             self.pool_size,
             self.read_only,
+            self.connect_timeout,
         )
         .await
         .map_err(|e| {
@@ -146,12 +152,13 @@ pub async fn connect_pool(
     engine: EngineKind,
     pool_size: u32,
     read_only: bool,
+    connect_timeout: Duration,
 ) -> Result<EnginePool> {
     match engine {
         EngineKind::Postgres => {
             let mut options = PgPoolOptions::new()
                 .max_connections(pool_size)
-                .acquire_timeout(CONNECT_TIMEOUT)
+                .acquire_timeout(connect_timeout)
                 .idle_timeout(Duration::from_secs(30));
             if read_only {
                 options = options.after_connect(|conn, _meta| {
@@ -169,7 +176,7 @@ pub async fn connect_pool(
         EngineKind::Mysql => {
             let mut options = MySqlPoolOptions::new()
                 .max_connections(pool_size)
-                .acquire_timeout(CONNECT_TIMEOUT);
+                .acquire_timeout(connect_timeout);
             if read_only {
                 options = options.after_connect(|conn, _meta| {
                     Box::pin(async move {
@@ -187,7 +194,7 @@ pub async fn connect_pool(
             let connect_url = sqlite_connect_url(url, read_only);
             let options = SqlitePoolOptions::new()
                 .max_connections(pool_size)
-                .acquire_timeout(CONNECT_TIMEOUT);
+                .acquire_timeout(connect_timeout);
             let pool = options.connect(&connect_url).await?;
             Ok(EnginePool::Sqlite(pool))
         }

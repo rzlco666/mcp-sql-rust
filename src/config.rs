@@ -6,7 +6,9 @@ use anyhow::{bail, Context, Result};
 use clap::Parser;
 use serde::{Deserialize, Serialize};
 
-use crate::db::{detect_engine_from_url, EngineKind, EnginePool, LazyEnginePool};
+use crate::db::{
+    detect_engine_from_url, EngineKind, EnginePool, LazyEnginePool, DEFAULT_CONNECT_TIMEOUT_SECS,
+};
 
 pub const DEFAULT_MAX_ROWS: u32 = 100;
 pub const DEFAULT_MAX_BYTES: usize = 64 * 1024;
@@ -85,6 +87,10 @@ pub struct Cli {
     /// Query timeout in seconds.
     #[arg(long, default_value_t = DEFAULT_QUERY_TIMEOUT_SECS)]
     pub query_timeout: u64,
+
+    /// Pool acquire / connect timeout in seconds (default: 2).
+    #[arg(long, default_value_t = DEFAULT_CONNECT_TIMEOUT_SECS)]
+    pub connect_timeout: u64,
 
     /// Max concurrent queries in a batch.
     #[arg(long, default_value_t = DEFAULT_BATCH_CONCURRENCY)]
@@ -193,6 +199,7 @@ pub async fn load_config(cli: &Cli) -> Result<AppConfig> {
 
     let read_only = !write_mode.allows_dml();
     let pool_size = cli.pool_size;
+    let connect_timeout = Duration::from_secs(cli.connect_timeout);
     let mut sources = HashMap::new();
 
     if let Some(path) = &cli.config {
@@ -210,7 +217,13 @@ pub async fn load_config(cli: &Cli) -> Result<AppConfig> {
                     name: src.name.clone(),
                     url: url.clone(),
                     engine,
-                    lazy_pool: LazyEnginePool::new(url, engine, pool_size, read_only),
+                    lazy_pool: LazyEnginePool::new(
+                        url,
+                        engine,
+                        pool_size,
+                        read_only,
+                        connect_timeout,
+                    ),
                 },
             );
         }
@@ -250,7 +263,7 @@ pub async fn load_config(cli: &Cli) -> Result<AppConfig> {
             name: "default".into(),
             url: url.clone(),
             engine,
-            lazy_pool: LazyEnginePool::new(url, engine, pool_size, read_only),
+            lazy_pool: LazyEnginePool::new(url, engine, pool_size, read_only, connect_timeout),
         },
     );
 

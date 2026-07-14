@@ -24,6 +24,12 @@ When `schema` is omitted, the server resolves the current database via `SELECT D
 
 `information_schema` aggregates (`SUM(table_rows)`, `ROUND(...)`, `COUNT(*)`) return JSON **numbers** without `CAST(... AS CHAR)` workarounds. `DECIMAL` columns decode via `bigdecimal`.
 
+### Strings vs binary (v0.5.1+)
+
+- Character types (`VARCHAR`, `CHAR`, `TEXT`, `ENUM`, `SET`, `JSON`) → UTF-8 JSON strings in `execute_sql` (columnar and `format: rows`).
+- Binary types (`BLOB`, `BINARY`, `VARBINARY`, `BIT`) → hex strings (lowercase, no `0x` prefix).
+- Schema tools (`describe_table`, `search_objects`, `list_foreign_keys`) already returned readable text; execute path now matches.
+
 ## `describe_table`
 
 - Pass `table` as the bare table name (`users`), not `database.users` in the `table` field (qualified `db.table` is accepted and split).
