@@ -120,6 +120,22 @@ async fn mysql_describe_table_fw_users_if_present() {
     let columns = object.columns.expect("columns");
     assert!(!columns.is_empty(), "fw_users should have columns");
 
+    if let Some(indexes) = &object.indexes {
+        for idx in indexes {
+            let has_uni_col = columns.iter().any(|c| {
+                c.key.as_deref() == Some("UNI")
+                    && idx.columns.iter().any(|ic| ic.eq_ignore_ascii_case(&c.name))
+            });
+            if has_uni_col {
+                assert!(
+                    idx.unique,
+                    "index {} covering UNI column must report unique: true",
+                    idx.name
+                );
+            }
+        }
+    }
+
     let qualified = describe_table(&pool, None, None, &format!("{schema}.fw_users"))
         .await
         .expect("describe qualified table");

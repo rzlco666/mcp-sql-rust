@@ -76,7 +76,7 @@ MySQL `search_objects` / `list_tables` / `list_columns` / `list_indexes` default
 
 ### 6. DDL confirm (v0.5+)
 
-`schema_mutate` destructive actions (`drop_table`, `truncate_table`, `drop_column`) require `"confirm": true` in tool arguments, in addition to `--allow-ddl`.
+`schema_mutate` and DDL alias tools (`drop_table`, `truncate_table`, `drop_column`) require `"confirm": true` for destructive actions, in addition to `--allow-ddl`. Aliases are listed only when both `--full-tools` and `--allow-ddl` are set.
 
 ## Release artifact integrity
 

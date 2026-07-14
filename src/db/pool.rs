@@ -1,17 +1,20 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::Result;
-use sqlx::{MySql, MySqlPool, PgPool, Pool, Postgres, Sqlite, SqlitePool};
+use anyhow::{bail, Result};
 use sqlx::mysql::MySqlPoolOptions;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::sqlite::SqlitePoolOptions;
+use sqlx::{MySql, MySqlPool, PgPool, Pool, Postgres, Sqlite, SqlitePool};
+use tokio::net::TcpStream;
 use tokio::sync::Mutex;
 
 use crate::redact::redact_url;
 
 pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
 pub const DEFAULT_CONNECT_TIMEOUT_SECS: u64 = 2;
+/// Fail fast when the DB host/port is unreachable (before sqlx handshake).
+pub const TCP_PREFLIGHT_TIMEOUT: Duration = Duration::from_millis(500);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EngineKind {
@@ -154,6 +157,10 @@ pub async fn connect_pool(
     read_only: bool,
     connect_timeout: Duration,
 ) -> Result<EnginePool> {
+    if !matches!(engine, EngineKind::Sqlite) {
+        tcp_preflight(url, engine).await?;
+    }
+
     match engine {
         EngineKind::Postgres => {
             let mut options = PgPoolOptions::new()
@@ -201,6 +208,63 @@ pub async fn connect_pool(
     }
 }
 
+async fn tcp_preflight(url: &str, engine: EngineKind) -> Result<()> {
+    let Some((host, port)) = parse_host_port(url, engine) else {
+        return Ok(());
+    };
+    let addr = format!("{host}:{port}");
+    match tokio::time::timeout(TCP_PREFLIGHT_TIMEOUT, TcpStream::connect(&addr)).await {
+        Ok(Ok(_stream)) => Ok(()),
+        Ok(Err(e)) => bail!(
+            "TCP preflight failed in <{}ms ({addr}): {e}",
+            TCP_PREFLIGHT_TIMEOUT.as_millis()
+        ),
+        Err(_) => bail!(
+            "TCP preflight failed in <{}ms ({addr}): timed out",
+            TCP_PREFLIGHT_TIMEOUT.as_millis()
+        ),
+    }
+}
+
+/// Extract host/port from mysql:// or postgres(ql):// URLs. Returns None for unparsable forms.
+pub fn parse_host_port(url: &str, engine: EngineKind) -> Option<(String, u16)> {
+    let lower = url.to_ascii_lowercase();
+    let (rest, default_port) = match engine {
+        EngineKind::Mysql if lower.starts_with("mysql://") => {
+            (url.get("mysql://".len()..)?, 3306u16)
+        }
+        EngineKind::Postgres if lower.starts_with("postgresql://") => {
+            (url.get("postgresql://".len()..)?, 5432u16)
+        }
+        EngineKind::Postgres if lower.starts_with("postgres://") => {
+            (url.get("postgres://".len()..)?, 5432u16)
+        }
+        _ => return None,
+    };
+
+    let after_at = rest.rsplit('@').next().unwrap_or(rest);
+    let host_port = after_at.split('/').next().unwrap_or(after_at);
+    let host_port = host_port.split('?').next().unwrap_or(host_port);
+    // Strip IPv6 brackets if present: [::1]:5432
+    if let Some(inner) = host_port.strip_prefix('[') {
+        let (host, rest) = inner.split_once(']')?;
+        let port = if let Some(p) = rest.strip_prefix(':') {
+            p.parse().ok()?
+        } else {
+            default_port
+        };
+        return Some((host.to_string(), port));
+    }
+    let (host, port) = match host_port.rsplit_once(':') {
+        Some((h, p)) if !h.is_empty() => (h, p.parse().unwrap_or(default_port)),
+        _ => (host_port, default_port),
+    };
+    if host.is_empty() {
+        return None;
+    }
+    Some((host.to_string(), port))
+}
+
 fn sqlite_connect_url(url: &str, read_only: bool) -> String {
     if !read_only {
         return url.to_string();
@@ -237,6 +301,47 @@ pub fn detect_engine_from_url(hint: Option<&str>, url: &str) -> anyhow::Result<E
     } else if lower.starts_with("sqlite:") || lower.starts_with("sqlite://") {
         Ok(EngineKind::Sqlite)
     } else {
-        anyhow::bail!("cannot detect engine from URL scheme; use postgresql://, mysql://, or sqlite:")
+        bail!("cannot detect engine from URL scheme; use postgresql://, mysql://, or sqlite:")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_mysql_host_port() {
+        assert_eq!(
+            parse_host_port("mysql://u:p@127.0.0.1:3307/db", EngineKind::Mysql),
+            Some(("127.0.0.1".into(), 3307))
+        );
+        assert_eq!(
+            parse_host_port("mysql://u:p@localhost/db", EngineKind::Mysql),
+            Some(("localhost".into(), 3306))
+        );
+    }
+
+    #[test]
+    fn parse_postgres_host_port() {
+        assert_eq!(
+            parse_host_port(
+                "postgresql://u:p@db.example.com:5433/app",
+                EngineKind::Postgres
+            ),
+            Some(("db.example.com".into(), 5433))
+        );
+    }
+
+    #[tokio::test]
+    async fn tcp_preflight_fails_fast_on_closed_port() {
+        // Port 1 is typically closed / unprivileged refuse
+        let err = tcp_preflight("mysql://u:p@127.0.0.1:1/db", EngineKind::Mysql)
+            .await
+            .unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("TCP preflight failed"),
+            "unexpected error: {msg}"
+        );
     }
 }

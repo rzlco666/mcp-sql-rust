@@ -100,6 +100,52 @@ async fn sqlite_list_tables_and_describe_table() {
 }
 
 #[tokio::test]
+async fn sqlite_describe_table_unique_index_flag() {
+    let pool = sqlite_pool().await;
+    let ddl_opts = exec_opts(WriteMode::AllowDdl);
+
+    execute_query(
+        &pool,
+        "CREATE TABLE uniq_demo (id INTEGER PRIMARY KEY, email TEXT, name TEXT)",
+        &[],
+        &ddl_opts,
+    )
+    .await
+    .expect("create uniq_demo");
+    execute_query(
+        &pool,
+        "CREATE UNIQUE INDEX uniq_demo_email ON uniq_demo(email)",
+        &[],
+        &ddl_opts,
+    )
+    .await
+    .expect("unique index");
+    execute_query(
+        &pool,
+        "CREATE INDEX uniq_demo_name ON uniq_demo(name)",
+        &[],
+        &ddl_opts,
+    )
+    .await
+    .expect("non-unique index");
+
+    let described = describe_table(&pool, None, Some("main"), "uniq_demo")
+        .await
+        .expect("describe uniq_demo");
+    let indexes = described.indexes.expect("indexes");
+    let email = indexes
+        .iter()
+        .find(|i| i.name == "uniq_demo_email")
+        .expect("unique index present");
+    assert!(email.unique, "UNIQUE index must report unique: true");
+    let name_idx = indexes
+        .iter()
+        .find(|i| i.name == "uniq_demo_name")
+        .expect("non-unique index present");
+    assert!(!name_idx.unique, "plain index must report unique: false");
+}
+
+#[tokio::test]
 async fn sqlite_guard_blocks_ddl_in_read_only() {
     let err = validate_and_prepare(
         "CREATE TABLE blocked (id INTEGER)",

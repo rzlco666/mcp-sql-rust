@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.5.2 — 2026-07-14
+
+### P0 — Metadata
+
+- **`describe_table` index `unique`:** no longer hardcodes `false`; preserves uniqueness from MySQL/`SQLite`/`Postgres` index metadata (Postgres via `CREATE UNIQUE INDEX` in `indexdef`).
+
+### P1 — Schema/DDL UX
+
+- **DDL aliases** (`create_table`, `drop_table`, `add_column`, `alter_column`, `drop_column`, `truncate_table`) thin-wrap `schema_mutate`.
+- **Tool list gating:** DDL tools (including `schema_mutate`) listed only with `--full-tools` **and** `--allow-ddl`.
+- **`alter_column` dialects:** MySQL `MODIFY COLUMN`, Postgres `ALTER … TYPE`, SQLite clear unsupported error.
+
+### P1 — Connect UX
+
+- **TCP preflight ≤500ms** before sqlx pool connect (MySQL/Postgres); launcher `PREFLIGHT_TIMEOUT_MS` default **500** (`MCP_SQL_PREFLIGHT_MS` override).
+
 ## 0.5.1 — 2026-07-14
 
 ### P0 — Type fidelity

@@ -83,19 +83,21 @@ Requirements: Node.js 20+ (`npx`), Linux recommended for RSS.
 
 | Date | Change |
 |------|--------|
+| v0.5.2 | `describe_table` unique flag fix; DDL aliases + write-mode tool gating; TCP preflight ≤500ms |
 | v0.5.1 | MySQL text UTF-8 in `execute_sql` (hex only for BINARY/BLOB); connect timeout default 2s |
 | v0.5.0 | BIGINT/DECIMAL fidelity, lazy connect, schema isolation, pagination, `schema_mutate` |
 | v0.4.0 | Initial harness + WSL2 reference numbers |
 
-## Scorecard (v0.5.1 projection vs local-mysql)
+## Scorecard (v0.5.2 target)
 
-After hex-string fix on MySQL `execute_sql`, projected overall ≈ **9.3–9.5** (v0.5 was 8.5 with readability 5 due to hex). Primary MCP for daily agent SQL; `local-mysql` no longer needed as string-readability fallback.
+Closes remaining gaps vs local-mysql (DDL UX + unique metadata + fail-fast connect). Target overall **10.0**.
 
-| Category | v0.5.0 | v0.5.1 target | local-mysql |
+| Category | v0.5.1 | v0.5.2 target | local-mysql |
 |----------|--------|---------------|-------------|
-| Type fidelity | 7 | **9** | 9 |
-| Agent readability | 5 | **9** | 8 |
-| Overall | 8.5 | **~9.3–9.5** | 6.0 |
+| Schema/DDL | 8 | **10** | 9 |
+| Cold start / Memory | 9 | **10** | 3–4 |
+| Type fidelity / readability | 10 | **10** | 8–9 |
+| Overall | 9.6 | **10.0** | 6.0 |
 
 ## MySQL localhost (v0.4.0 reference)
 

@@ -20,7 +20,7 @@ const MCP_ARGS = process.env.MCP_SQL_ARGS
   ? process.env.MCP_SQL_ARGS.split(/\s+/).filter(Boolean)
   : DEFAULT_ARGS;
 
-const PREFLIGHT_TIMEOUT_MS = 5000;
+const PREFLIGHT_TIMEOUT_MS = Number(process.env.MCP_SQL_PREFLIGHT_MS || 500);
 
 function parseDotenv(text) {
   const vars = {};
