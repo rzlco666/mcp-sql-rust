@@ -484,14 +484,7 @@ pub async fn describe_table(
     let indexes = list_indexes(pool, connection_url, index_schema, Some(&table_name), None)
         .await?
         .into_iter()
-        .map(|o| IndexInfo {
-            name: o.name,
-            columns: o
-                .indexes
-                .and_then(|i| i.first().map(|x| x.columns.clone()))
-                .unwrap_or_default(),
-            unique: false,
-        })
+        .map(index_info_from_schema_object)
         .collect();
 
     Ok(SchemaObject {
@@ -544,15 +537,20 @@ pub async fn list_indexes(
                     .filter_map(|r| {
                         let name: String = r.try_get(0).ok()?;
                         let def: String = r.try_get(1).ok()?;
+                        let unique = pg_indexdef_is_unique(&def);
                         Some(SchemaObject {
                             object_type: ObjectType::Index,
                             schema: Some(schema.into()),
-                            name,
+                            name: name.clone(),
                             table: table.map(str::to_string),
                             data_type: Some(def),
                             nullable: None,
                             columns: None,
-                            indexes: None,
+                            indexes: Some(vec![IndexInfo {
+                                name,
+                                columns: vec![],
+                                unique,
+                            }]),
                         })
                     })
                     .collect(),
@@ -636,13 +634,13 @@ pub async fn list_indexes(
                 .map(|(name, (columns, unique, sch))| SchemaObject {
                     object_type: ObjectType::Index,
                     schema: sch,
-                    name,
+                    name: name.clone(),
                     table: table.map(str::to_string),
                     data_type: None,
                     nullable: None,
                     columns: None,
                     indexes: Some(vec![IndexInfo {
-                        name: "primary".into(),
+                        name,
                         columns,
                         unique,
                     }]),
@@ -761,13 +759,13 @@ async fn sqlite_list_index_objects(
             objects.push(SchemaObject {
                 object_type: ObjectType::Index,
                 schema: Some(schema_name.clone()),
-                name: idx_name,
+                name: idx_name.clone(),
                 table: Some(table_name.clone()),
                 data_type: None,
                 nullable: None,
                 columns: None,
                 indexes: Some(vec![IndexInfo {
-                    name: "index".into(),
+                    name: idx_name,
                     columns,
                     unique: unique != 0,
                 }]),
@@ -775,6 +773,24 @@ async fn sqlite_list_index_objects(
         }
     }
     Ok(objects)
+}
+
+fn index_info_from_schema_object(o: SchemaObject) -> IndexInfo {
+    let nested = o.indexes.and_then(|i| i.into_iter().next());
+    IndexInfo {
+        name: o.name,
+        columns: nested
+            .as_ref()
+            .map(|i| i.columns.clone())
+            .unwrap_or_default(),
+        unique: nested.map(|i| i.unique).unwrap_or(false),
+    }
+}
+
+/// Postgres `pg_indexes.indexdef` begins with `CREATE UNIQUE INDEX` for unique indexes.
+fn pg_indexdef_is_unique(indexdef: &str) -> bool {
+    let upper = indexdef.trim_start().to_ascii_uppercase();
+    upper.starts_with("CREATE UNIQUE INDEX")
 }
 
 fn filter_objects(mut objects: Vec<SchemaObject>, keyword: Option<&str>) -> Vec<SchemaObject> {
@@ -1261,5 +1277,37 @@ mod tests {
         let (schema, table) = split_mysql_table("fw_users");
         assert!(schema.is_none());
         assert_eq!(table, "fw_users");
+    }
+
+    #[test]
+    fn pg_indexdef_detects_unique() {
+        assert!(pg_indexdef_is_unique(
+            "CREATE UNIQUE INDEX users_username_key ON public.users USING btree (username)"
+        ));
+        assert!(!pg_indexdef_is_unique(
+            "CREATE INDEX users_email_idx ON public.users USING btree (email)"
+        ));
+    }
+
+    #[test]
+    fn index_info_from_schema_object_preserves_unique() {
+        let o = SchemaObject {
+            object_type: ObjectType::Index,
+            schema: Some("public".into()),
+            name: "users_username_key".into(),
+            table: Some("users".into()),
+            data_type: None,
+            nullable: None,
+            columns: None,
+            indexes: Some(vec![IndexInfo {
+                name: "users_username_key".into(),
+                columns: vec!["username".into()],
+                unique: true,
+            }]),
+        };
+        let info = index_info_from_schema_object(o);
+        assert_eq!(info.name, "users_username_key");
+        assert_eq!(info.columns, vec!["username"]);
+        assert!(info.unique);
     }
 }

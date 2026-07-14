@@ -40,16 +40,16 @@ Copy [packaging/mcp.json.example](../packaging/mcp.json.example) and adjust path
 
 1. Cursor passes `${workspaceFolder}` (or cwd fallback) to the launcher.
 2. Launcher walks up from the workspace to find `.env`.
-3. **TCP preflight** (5s): if MySQL/Postgres host is unreachable, prints a clear stderr message and exits before spawning Rust (avoids 30s pool timeout).
+3. **TCP preflight** (500ms, override `MCP_SQL_PREFLIGHT_MS`): if MySQL/Postgres host is unreachable, prints a clear stderr message and exits before spawning Rust.
 4. Spawns `mcp-sql-rust --workspace <path> --allow-writes --full-tools` with env injected.
 5. Rust `chdir`s to workspace, loads `.env`, resolves SQLite relative paths (`sqlite://./data.db`).
 
 ## Lazy connect (default)
 
-The MCP server **starts even when the database is down**. The first tool call connects with a 5s timeout and returns:
+The MCP server **starts even when the database is down**. The first tool call runs a **≤500ms TCP preflight**, then sqlx connect (default **2s** `--connect-timeout`):
 
 ```
-cannot connect to mysql://user:***@127.0.0.1:3306/db: connection refused
+cannot connect to mysql://user:***@127.0.0.1:3306/db: TCP preflight failed in <500ms (...)
 ```
 
 Use `--eager-connect` (via `MCP_SQL_ARGS`) to restore startup ping behavior.

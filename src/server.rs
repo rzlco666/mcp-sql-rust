@@ -28,7 +28,12 @@ use crate::tools::core::{
     handle_analyze_query, handle_execute_sql, handle_search_objects, AnalyzeQueryParams,
     ExecuteSqlParams, SearchObjectsParams,
 };
-use crate::tools::ddl::{handle_schema_mutate, SchemaMutateParams};
+use crate::tools::ddl::{
+    handle_add_column, handle_alter_column, handle_create_table, handle_drop_column,
+    handle_drop_table, handle_schema_mutate, handle_truncate_table, AddColumnParams,
+    AlterColumnParams, CreateTableParams, DropColumnParams, DropTableParams, SchemaMutateParams,
+    TruncateTableParams,
+};
 use crate::tools::full::{
     handle_describe_table, handle_list_foreign_keys, handle_list_indexes, handle_list_schemas,
     handle_list_sources, handle_list_tables, DescribeTableParams, ListForeignKeysParams,
@@ -41,14 +46,25 @@ const CORE_TOOLS: &[&str] = &[
     "analyze_query_performance",
 ];
 
-const FULL_TOOLS: &[&str] = &[
+/// Introspection tools exposed with `--full-tools` (always, including read-only).
+const FULL_INTROSPECT_TOOLS: &[&str] = &[
     "list_sources",
     "list_schemas",
     "list_tables",
     "describe_table",
     "list_indexes",
     "list_foreign_keys",
+];
+
+/// DDL tools — only listed when `--full-tools` and `--allow-ddl`.
+const DDL_TOOLS: &[&str] = &[
     "schema_mutate",
+    "create_table",
+    "drop_table",
+    "add_column",
+    "alter_column",
+    "drop_column",
+    "truncate_table",
 ];
 
 #[derive(Clone)]
@@ -144,6 +160,54 @@ impl McpSqlServer {
     ) -> Result<CallToolResult, McpError> {
         handle_schema_mutate(&self.config, params.0).await
     }
+
+    #[tool(description = "Create table from DDL (requires --allow-ddl).")]
+    async fn create_table(
+        &self,
+        params: Parameters<CreateTableParams>,
+    ) -> Result<CallToolResult, McpError> {
+        handle_create_table(&self.config, params.0).await
+    }
+
+    #[tool(description = "Drop table; needs confirm:true and --allow-ddl.")]
+    async fn drop_table(
+        &self,
+        params: Parameters<DropTableParams>,
+    ) -> Result<CallToolResult, McpError> {
+        handle_drop_table(&self.config, params.0).await
+    }
+
+    #[tool(description = "Add a column to a table (requires --allow-ddl).")]
+    async fn add_column(
+        &self,
+        params: Parameters<AddColumnParams>,
+    ) -> Result<CallToolResult, McpError> {
+        handle_add_column(&self.config, params.0).await
+    }
+
+    #[tool(description = "Alter column type (requires --allow-ddl).")]
+    async fn alter_column(
+        &self,
+        params: Parameters<AlterColumnParams>,
+    ) -> Result<CallToolResult, McpError> {
+        handle_alter_column(&self.config, params.0).await
+    }
+
+    #[tool(description = "Drop column; needs confirm:true and --allow-ddl.")]
+    async fn drop_column(
+        &self,
+        params: Parameters<DropColumnParams>,
+    ) -> Result<CallToolResult, McpError> {
+        handle_drop_column(&self.config, params.0).await
+    }
+
+    #[tool(description = "Truncate table; needs confirm:true and --allow-ddl.")]
+    async fn truncate_table(
+        &self,
+        params: Parameters<TruncateTableParams>,
+    ) -> Result<CallToolResult, McpError> {
+        handle_truncate_table(&self.config, params.0).await
+    }
 }
 
 #[tool_handler]
@@ -168,15 +232,13 @@ impl ServerHandler for McpSqlServer {
         _ctx: rmcp::service::RequestContext<rmcp::RoleServer>,
     ) -> Result<ListToolsResult, McpError> {
         let all = self.tool_router.list_all();
-        let allowed: Vec<&str> = if self.config.full_tools {
-            CORE_TOOLS
-                .iter()
-                .chain(FULL_TOOLS.iter())
-                .copied()
-                .collect()
-        } else {
-            CORE_TOOLS.to_vec()
-        };
+        let mut allowed: Vec<&str> = CORE_TOOLS.to_vec();
+        if self.config.full_tools {
+            allowed.extend(FULL_INTROSPECT_TOOLS.iter().copied());
+            if self.config.write_mode.allows_ddl() {
+                allowed.extend(DDL_TOOLS.iter().copied());
+            }
+        }
 
         let tools: Vec<Tool> = all
             .into_iter()

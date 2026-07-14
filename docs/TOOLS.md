@@ -123,17 +123,30 @@ On MySQL, `total_cost` and `plan_rows` are best-effort (aggregated from plan nod
 
 ## Full tools (`--full-tools`)
 
+Introspection (always when `--full-tools`):
+
 | Tool | Purpose |
 |------|---------|
 | `list_sources` | Configured connection names |
 | `list_schemas` | Schemas / databases |
 | `list_tables` | Tables in schema (paginated: `offset`, `limit`) |
-| `describe_table` | Columns + indexes (`key`, `extra`, `comment`, `default` on MySQL) |
+| `describe_table` | Columns + indexes (`unique` flag; MySQL `key`/`extra`/`comment`/`default`) |
 | `list_indexes` | Indexes for schema/table |
 | `list_foreign_keys` | Foreign keys for schema/table |
-| `schema_mutate` | DDL actions (`create_table`, `drop_table`, …) — requires `--allow-ddl` |
 
-`schema_mutate` destructive ops require `"confirm": true`. Prefer `search_objects` in default mode to save tokens.
+DDL tools appear **only** when `--full-tools` **and** `--allow-ddl` (hidden in read-only / writes-only to save tokens):
+
+| Tool | Purpose |
+|------|---------|
+| `schema_mutate` | Unified DDL (`action`: create_table, drop_table, …) |
+| `create_table` | Alias — `ddl` CREATE TABLE string |
+| `drop_table` | Alias — needs `confirm: true` |
+| `add_column` | Alias — `table` + `column` |
+| `alter_column` | Alias — MySQL `MODIFY`, Postgres `TYPE`; SQLite unsupported |
+| `drop_column` | Alias — needs `confirm: true` |
+| `truncate_table` | Alias — needs `confirm: true` |
+
+Destructive ops (`drop_*`, `truncate_table`) require `"confirm": true`. Prefer `search_objects` in default mode to save tokens.
 
 ## Caps
 
@@ -144,3 +157,4 @@ On MySQL, `total_cost` and `plan_rows` are best-effort (aggregated from plan nod
 | `--query-timeout` | 10s | Per-query timeout |
 | `--batch-concurrency` | 8 | Max parallel batch queries |
 | `--pool-size` | 10 | sqlx pool per source |
+| `--connect-timeout` | 2s | sqlx pool acquire / handshake after TCP preflight |

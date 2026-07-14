@@ -89,11 +89,18 @@ mcp-sql-rust --eager-connect                # connect at startup (default: lazy)
 
 ## Lazy connect
 
-By default the server **does not** connect to the database at startup. The first tool call establishes the pool (default **2s** acquire timeout via `--connect-timeout`). Errors redact passwords:
+By default the server **does not** connect to the database at startup. The first tool call establishes the pool:
+
+1. **TCP preflight** (MySQL/Postgres) — ≤500ms connect probe; fails fast if host/port unreachable
+2. **sqlx pool** — default **2s** acquire timeout via `--connect-timeout`
+
+Errors redact passwords:
 
 ```
-cannot connect to mysql://user:***@127.0.0.1:3306/db: connection refused
+cannot connect to mysql://user:***@127.0.0.1:3306/db: TCP preflight failed in <500ms (...)
 ```
+
+Cursor launcher (`packaging/cursor-mcp-launcher.mjs`) also probes TCP before spawn (default 500ms; override with `MCP_SQL_PREFLIGHT_MS`).
 
 Use `--eager-connect` to ping all sources before serving MCP (previous behavior).
 
