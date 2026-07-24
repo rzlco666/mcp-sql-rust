@@ -16,14 +16,14 @@ All install paths for **strut-stack-sql**. Pick one channel; they install the sa
 ## curl install script
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/rzlco666/strut-stack-sql/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/rzlco666/strut-stack-sql/main/install.sh | bash
 strut-stack-sql --version
 ```
 
 Options:
 
 ```bash
-curl -fsSL .../install.sh | sh -s -- --version 1.0.0 --prefix ~/.local
+curl -fsSL .../install.sh | bash -s -- --version 1.0.0 --prefix ~/.local
 ```
 
 Installs `~/.local/bin/strut-stack-sql` and a `mcp-sql-rust` symlink (compat). Add `~/.local/bin` to `PATH` if needed.

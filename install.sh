@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Install strut-stack-sql from GitHub Releases.
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/rzlco666/strut-stack-sql/main/install.sh | sh
-#   curl -fsSL ... | sh -s -- --version 1.0.0 --prefix ~/.local
+#   curl -fsSL https://raw.githubusercontent.com/rzlco666/strut-stack-sql/main/install.sh | bash
+#   curl -fsSL ... | bash -s -- --version 1.0.0 --prefix ~/.local
 set -euo pipefail
 
 REPO="${REPO:-rzlco666/strut-stack-sql}"

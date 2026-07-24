@@ -20,7 +20,7 @@ Formerly published as `mcp-sql-rust` (compat binary alias still ships in v1.0).
 ## Install (one command)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/rzlco666/strut-stack-sql/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/rzlco666/strut-stack-sql/main/install.sh | bash
 strut-stack-sql --version
 ```
 
