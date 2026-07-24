@@ -9,16 +9,12 @@ use axum::{
     Router,
 };
 use rmcp::handler::server::wrapper::Parameters;
-use rmcp::model::{
-    CallToolResult, ListToolsResult, ServerCapabilities, ServerInfo, Tool,
-};
+use rmcp::model::{CallToolResult, ListToolsResult, ServerCapabilities, ServerInfo, Tool};
+use rmcp::transport::stdio;
 use rmcp::transport::streamable_http_server::{
     session::local::LocalSessionManager, StreamableHttpServerConfig, StreamableHttpService,
 };
-use rmcp::transport::stdio;
-use rmcp::{
-    tool, tool_handler, tool_router, ErrorData as McpError, ServerHandler, ServiceExt,
-};
+use rmcp::{tool, tool_handler, tool_router, ErrorData as McpError, ServerHandler, ServiceExt};
 use serde::Serialize;
 use tokio_util::sync::CancellationToken;
 
@@ -40,11 +36,7 @@ use crate::tools::full::{
     ListIndexesParams, ListTablesParams, SourceParams,
 };
 
-const CORE_TOOLS: &[&str] = &[
-    "search_objects",
-    "execute_sql",
-    "analyze_query_performance",
-];
+const CORE_TOOLS: &[&str] = &["search_objects", "execute_sql", "analyze_query_performance"];
 
 /// Introspection tools exposed with `--full-tools` (always, including read-only).
 const FULL_INTROSPECT_TOOLS: &[&str] = &[
@@ -220,7 +212,7 @@ impl ServerHandler for McpSqlServer {
         };
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
             .with_instructions(format!(
-                "mcp-sql-rust ({mode}). Core tools: search_objects, execute_sql, analyze_query_performance. \
+                "strut-stack-sql ({mode}). Core tools: search_objects, execute_sql, analyze_query_performance. \
                  Results are compact columnar JSON. Default max {} rows. Use page_offset/page_size on execute_sql for pagination.",
                 self.config.max_rows
             ))
@@ -359,7 +351,7 @@ pub fn build_http_router(config: AppConfig) -> (Router, CancellationToken) {
 pub async fn run_http(config: AppConfig, addr: &str) -> Result<()> {
     let (router, ct) = build_http_router(config);
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    tracing::info!("mcp-sql-rust HTTP listening on http://{addr}/mcp (health: /healthz)");
+    tracing::info!("strut-stack-sql HTTP listening on http://{addr}/mcp (health: /healthz)");
 
     axum::serve(listener, router)
         .with_graceful_shutdown(async move {

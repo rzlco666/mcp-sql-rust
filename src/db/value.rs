@@ -5,7 +5,7 @@ use sqlx::{mysql::MySqlRow, postgres::PgRow, sqlite::SqliteRow, Column, Row, Typ
 
 pub fn bigdecimal_to_json(v: &BigDecimal) -> Value {
     if v.fractional_digit_count() == 0 {
-        if let Some(i) = v.to_string().parse::<i64>().ok() {
+        if let Ok(i) = v.to_string().parse::<i64>() {
             if (-(1i64 << 53)..=(1i64 << 53)).contains(&i) {
                 return Value::from(i);
             }
@@ -273,14 +273,7 @@ mod tests {
 
     #[test]
     fn mysql_type_is_binary_recognizes_blob_types() {
-        for t in [
-            "BLOB",
-            "TINYBLOB",
-            "VARBINARY",
-            "BINARY",
-            "BIT",
-            "LONGBLOB",
-        ] {
+        for t in ["BLOB", "TINYBLOB", "VARBINARY", "BINARY", "BIT", "LONGBLOB"] {
             assert!(mysql_type_is_binary(t), "{t} should be binary");
             assert!(!mysql_type_is_text(t), "{t} should not be text");
         }

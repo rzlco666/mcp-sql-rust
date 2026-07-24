@@ -1,21 +1,21 @@
-# MCP Registry — mcp-sql-rust
+# MCP Registry — strut-stack-sql
 
-Publishes to the [MCP Registry](https://registry.modelcontextprotocol.io) using **MCPB** bundles on [GitHub Releases](https://github.com/rzlco666/mcp-sql-rust/releases).
+Publishes to the [MCP Registry](https://registry.modelcontextprotocol.io) using **MCPB** bundles on [GitHub Releases](https://github.com/rzlco666/strut-stack-sql/releases).
 
 Registry name:
 
 ```text
-io.github.rzlco666/mcp-sql-rust
+io.github.rzlco666/strut-stack-sql
 ```
 
 ## Release artifacts (v0.4.0+)
 
 | Asset | Purpose |
 |-------|---------|
-| `mcp-sql-rust-<target>.tar.gz` | Linux/macOS binary archive |
-| `mcp-sql-rust-x86_64-pc-windows-msvc.zip` | Windows binary archive |
+| `strut-stack-sql-<target>.tar.gz` | Linux/macOS binary archive |
+| `strut-stack-sql-x86_64-pc-windows-msvc.zip` | Windows binary archive |
 | `SHA256SUMS` | Checksums for all release files |
-| `mcp-sql-rust-<target>.mcpb` | MCP Registry bundle per platform |
+| `strut-stack-sql-<target>.mcpb` | MCP Registry bundle per platform |
 
 Archive naming is consistent across platforms. See [INSTALL.md](INSTALL.md) for non-registry install paths.
 
@@ -56,7 +56,7 @@ Manual fallback: `workflow_dispatch` on `registry-publish.yml`.
 ## Verify
 
 ```bash
-curl -s "https://registry.modelcontextprotocol.io/v0/servers?search=io.github.rzlco666/mcp-sql-rust"
+curl -s "https://registry.modelcontextprotocol.io/v0/servers?search=io.github.rzlco666/strut-stack-sql"
 ```
 
 ## Cursor install (binary)
@@ -65,7 +65,7 @@ curl -s "https://registry.modelcontextprotocol.io/v0/servers?search=io.github.rz
 {
   "mcpServers": {
     "sql": {
-      "command": "mcp-sql-rust",
+      "command": "strut-stack-sql",
       "args": []
     }
   }

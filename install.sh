@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Install mcp-sql-rust from GitHub Releases.
+# Install strut-stack-sql from GitHub Releases.
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/rzlco666/mcp-sql-rust/main/install.sh | sh
-#   curl -fsSL ... | sh -s -- --version 0.4.0 --prefix ~/.local
+#   curl -fsSL https://raw.githubusercontent.com/rzlco666/strut-stack-sql/main/install.sh | sh
+#   curl -fsSL ... | sh -s -- --version 1.0.0 --prefix ~/.local
 set -euo pipefail
 
-REPO="${REPO:-rzlco666/mcp-sql-rust}"
+REPO="${REPO:-rzlco666/strut-stack-sql}"
 PREFIX="${PREFIX:-${HOME}/.local}"
 VERSION=""
 VERIFY=1
@@ -16,7 +16,7 @@ Usage: install.sh [options]
 
 Options:
   --version VER   Install specific release (default: latest)
-  --prefix DIR    Install directory (default: ~/.local)
+  --prefix DIR    Install prefix (default: ~/.local) → $PREFIX/bin
   --no-verify     Skip SHA256SUMS verification
   -h, --help      Show this help
 EOF
@@ -36,8 +36,8 @@ OS="$(uname -s)"
 ARCH="$(uname -m)"
 
 case "$OS" in
-  Linux)  PLATFORM="unknown-linux-gnu" ;;
-  Darwin) PLATFORM="apple-darwin" ;;
+  Linux)  FAMILY="linux" ;;
+  Darwin) FAMILY="macos" ;;
   MINGW*|MSYS*|CYGWIN*)
     echo "On Windows, use Scoop or winget. See docs/INSTALL.md" >&2
     exit 1
@@ -49,16 +49,15 @@ case "$OS" in
 esac
 
 case "$ARCH" in
-  x86_64|amd64)  TARGET_ARCH="x86_64" ;;
-  aarch64|arm64) TARGET_ARCH="aarch64" ;;
+  x86_64|amd64)  TARGET_ARCH="x64" ;;
+  aarch64|arm64) TARGET_ARCH="arm64" ;;
   *)
     echo "Unsupported architecture: $ARCH" >&2
     exit 1
     ;;
 esac
 
-TARGET="${TARGET_ARCH}-${PLATFORM}"
-ARTIFACT="mcp-sql-rust-${TARGET}.tar.gz"
+ARTIFACT="strut-stack-sql-${FAMILY}-${TARGET_ARCH}.tar.gz"
 
 if [ -z "$VERSION" ]; then
   VERSION="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" | sed -n 's/.*"tag_name": *"v\([^"]*\)".*/\1/p' | head -1)"
@@ -72,7 +71,7 @@ BASE_URL="https://github.com/${REPO}/releases/download/v${VERSION}"
 TMPDIR="$(mktemp -d)"
 trap 'rm -rf "$TMPDIR"' EXIT
 
-echo "Installing mcp-sql-rust v${VERSION} (${TARGET}) to ${PREFIX}/bin"
+echo "Installing strut-stack-sql v${VERSION} (${FAMILY}-${TARGET_ARCH}) to ${PREFIX}/bin"
 
 curl -fsSL "${BASE_URL}/${ARTIFACT}" -o "${TMPDIR}/${ARTIFACT}"
 
@@ -80,23 +79,26 @@ if [ "$VERIFY" = "1" ]; then
   curl -fsSL "${BASE_URL}/SHA256SUMS" -o "${TMPDIR}/SHA256SUMS"
   (
     cd "$TMPDIR"
-    EXPECTED="$(grep " ${ARTIFACT}$" SHA256SUMS | awk '{print $1}')"
-    ACTUAL="$(sha256sum "${ARTIFACT}" | awk '{print $1}')"
-    if [ -z "$EXPECTED" ] || [ "$EXPECTED" != "$ACTUAL" ]; then
-      echo "SHA256 verification failed for ${ARTIFACT}" >&2
-      exit 1
+    if command -v sha256sum >/dev/null 2>&1; then
+      sha256sum -c --ignore-missing SHA256SUMS
+    elif command -v shasum >/dev/null 2>&1; then
+      grep " ${ARTIFACT}\$" SHA256SUMS | shasum -a 256 -c -
+    else
+      echo "warning: no sha256 tool; skipping verify" >&2
     fi
   )
 fi
 
 tar -xzf "${TMPDIR}/${ARTIFACT}" -C "$TMPDIR"
 mkdir -p "${PREFIX}/bin"
-install -m 755 "${TMPDIR}/mcp-sql-rust" "${PREFIX}/bin/mcp-sql-rust"
+install -m 755 "${TMPDIR}/strut-stack-sql" "${PREFIX}/bin/strut-stack-sql"
+# Compat alias
+ln -sfn strut-stack-sql "${PREFIX}/bin/mcp-sql-rust"
 
-if ! echo ":${PATH}:" | grep -q ":${PREFIX}/bin:"; then
+if ! echo ":$PATH:" | grep -q ":${PREFIX}/bin:"; then
   echo ""
-  echo "Add to PATH:"
+  echo "Add to your shell profile:"
   echo "  export PATH=\"${PREFIX}/bin:\$PATH\""
 fi
 
-echo "Installed: $("${PREFIX}/bin/mcp-sql-rust" --version 2>/dev/null || echo "${PREFIX}/bin/mcp-sql-rust")"
+echo "OK → $(${PREFIX}/bin/strut-stack-sql --version)"

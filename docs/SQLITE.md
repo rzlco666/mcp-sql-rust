@@ -1,4 +1,4 @@
-# SQLite — mcp-sql-rust
+# SQLite — strut-stack-sql
 
 SQLite is supported as a third engine alongside PostgreSQL and MySQL.
 

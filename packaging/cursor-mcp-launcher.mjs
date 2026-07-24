@@ -1,26 +1,61 @@
 #!/usr/bin/env node
 /**
- * Official MCP launcher for Cursor — loads workspace .env before spawning mcp-sql-rust.
+ * Official Cursor MCP launcher for strut-stack-sql.
+ *
+ * Loads workspace .env when present, warns (does not exit) if DB is missing
+ * or unreachable, then always spawns the binary so MCP initialize succeeds.
+ * DB connect stays lazy inside the server.
  *
  * ~/.cursor/mcp.json:
- *   "args": ["/path/to/mcp-sql-rust/packaging/cursor-mcp-launcher.mjs", "${workspaceFolder}"]
+ *   "command": "node",
+ *   "args": ["/path/to/packaging/cursor-mcp-launcher.mjs", "${workspaceFolder}"]
  */
 import { spawn } from 'child_process';
 import { createConnection } from 'net';
 import { existsSync, readFileSync } from 'fs';
 import { dirname, join, resolve } from 'path';
-
-const MCP_BIN =
-  process.env.MCP_SQL_RUST_BIN ||
-  process.env.MCP_SQL_BIN ||
-  'mcp-sql-rust';
-
-const DEFAULT_ARGS = ['--allow-writes', '--full-tools'];
-const MCP_ARGS = process.env.MCP_SQL_ARGS
-  ? process.env.MCP_SQL_ARGS.split(/\s+/).filter(Boolean)
-  : DEFAULT_ARGS;
+import { fileURLToPath } from 'url';
 
 const PREFLIGHT_TIMEOUT_MS = Number(process.env.MCP_SQL_PREFLIGHT_MS || 500);
+const EXTRA_ENV_DIRS = (
+  process.env.MCP_SQL_ENV_SUBDIRS ||
+  'apps/api,apps/backend,backend,server,api,db'
+)
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+const DEFAULT_ARGS = (process.env.MCP_SQL_ARGS || '--full-tools')
+  .split(/\s+/)
+  .filter(Boolean);
+
+function candidateBins() {
+  const envBin =
+    process.env.STRUT_STACK_SQL_BIN ||
+    process.env.MCP_SQL_RUST_BIN ||
+    process.env.MCP_SQL_BIN;
+  const home = process.env.HOME || '';
+  return [
+    envBin,
+    'strut-stack-sql',
+    'strut-sql',
+    'mcp-sql-rust',
+    home && join(home, '.local/bin/strut-stack-sql'),
+    home && join(home, '.local/bin/mcp-sql-rust'),
+    home && join(home, '.cargo/bin/strut-stack-sql'),
+    home && join(home, '.cargo/bin/mcp-sql-rust'),
+  ].filter(Boolean);
+}
+
+function resolveBin() {
+  for (const cand of candidateBins()) {
+    if (!cand.includes('/') && !cand.includes('\\')) {
+      return cand; // PATH lookup by spawn
+    }
+    if (existsSync(cand)) return cand;
+  }
+  return 'strut-stack-sql';
+}
 
 function parseDotenv(text) {
   const vars = {};
@@ -40,20 +75,6 @@ function parseDotenv(text) {
     vars[key] = value;
   }
   return vars;
-}
-
-function findDotenv(startDir) {
-  let dir = resolve(startDir);
-  while (true) {
-    const envPath = join(dir, '.env');
-    if (existsSync(envPath)) {
-      return { envPath, vars: parseDotenv(readFileSync(envPath, 'utf8')) };
-    }
-    const parent = dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  return null;
 }
 
 function hasDbCredentials(vars) {
@@ -90,6 +111,33 @@ function resolveDatabaseUrl(vars) {
   return null;
 }
 
+function loadEnvFile(envPath) {
+  if (!existsSync(envPath)) return null;
+  const vars = parseDotenv(readFileSync(envPath, 'utf8'));
+  if (!hasDbCredentials(vars)) return null;
+  return { envPath, vars, dir: dirname(envPath) };
+}
+
+function findDotenv(workspace) {
+  const root = resolve(workspace);
+  // Prefer nested app env (e.g. apps/api) over root when both exist.
+  const preferred = EXTRA_ENV_DIRS.map((sub) => join(root, sub, '.env'));
+  const rootEnv = join(root, '.env');
+  for (const envPath of [...preferred, rootEnv]) {
+    const found = loadEnvFile(envPath);
+    if (found) return found;
+  }
+  let dir = root;
+  while (true) {
+    const found = loadEnvFile(join(dir, '.env'));
+    if (found) return found;
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return null;
+}
+
 function parseHostPort(url) {
   if (!url) return null;
   const lower = url.toLowerCase();
@@ -97,6 +145,7 @@ function parseHostPort(url) {
   if (lower.startsWith('mysql://')) rest = url.slice('mysql://'.length);
   else if (lower.startsWith('postgresql://')) rest = url.slice('postgresql://'.length);
   else if (lower.startsWith('postgres://')) rest = url.slice('postgres://'.length);
+  else if (lower.startsWith('sqlite:')) return null;
   else return null;
 
   const at = rest.lastIndexOf('@');
@@ -136,30 +185,45 @@ const workspace =
     : resolve(process.cwd());
 
 const found = findDotenv(workspace);
-if (!found || !hasDbCredentials(found.vars)) {
-  console.error(
-    `mcp-sql-rust launcher: no DATABASE_URL (or MYSQL_*/POSTGRES_* parts) in .env under ${workspace}`,
-  );
-  process.exit(1);
-}
+const childEnv = { ...process.env };
+let cwd = workspace;
+let rustArgs = [...DEFAULT_ARGS, '--workspace', workspace];
 
-const dbUrl = resolveDatabaseUrl(found.vars);
-const endpoint = parseHostPort(dbUrl);
-if (endpoint) {
-  const ok = await tcpPreflight(endpoint.host, endpoint.port);
-  if (!ok) {
-    console.error(
-      `mcp-sql-rust launcher: cannot reach ${endpoint.host}:${endpoint.port} — start the database or fix .env in ${workspace}`,
-    );
-    process.exit(1);
+if (!found) {
+  console.error(
+    `strut-stack-sql launcher: no DATABASE_URL under ${workspace} (checked: ${EXTRA_ENV_DIRS.join(', ')}, .env). Starting anyway — server uses lazy connect / memory fallback.`,
+  );
+} else {
+  Object.assign(childEnv, found.vars);
+  cwd = found.dir;
+  rustArgs = [...DEFAULT_ARGS, '--workspace', found.dir];
+  const dbUrl = resolveDatabaseUrl(found.vars);
+  const endpoint = parseHostPort(dbUrl);
+  if (endpoint && process.env.MCP_SQL_SKIP_PREFLIGHT !== '1') {
+    const ok = await tcpPreflight(endpoint.host, endpoint.port);
+    if (!ok) {
+      console.error(
+        `strut-stack-sql launcher: cannot reach ${endpoint.host}:${endpoint.port} (${found.envPath}) — starting anyway (lazy connect).`,
+      );
+    }
   }
 }
 
-const rustArgs = [...MCP_ARGS, '--workspace', workspace];
+const MCP_BIN = resolveBin();
+if (MCP_BIN.includes('/') && !existsSync(MCP_BIN)) {
+  console.error(`strut-stack-sql launcher: binary not found: ${MCP_BIN}`);
+  process.exit(1);
+}
+
 const child = spawn(MCP_BIN, rustArgs, {
   stdio: 'inherit',
-  env: { ...process.env, ...found.vars },
-  cwd: workspace,
+  env: childEnv,
+  cwd,
+});
+
+child.on('error', (err) => {
+  console.error(`strut-stack-sql launcher: failed to spawn ${MCP_BIN}: ${err.message}`);
+  process.exit(1);
 });
 
 child.on('exit', (code, signal) => {

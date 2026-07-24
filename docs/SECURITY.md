@@ -1,4 +1,4 @@
-# Security — mcp-sql-rust
+# Security — strut-stack-sql
 
 ## Threat model
 
@@ -20,11 +20,20 @@ flowchart LR
 
 - Dialects: `PostgreSqlDialect` / `MySqlDialect` / `SQLiteDialect`
 - Reject empty / multi-statement strings
-- Classify: Read / Dml / Ddl / Txn / Other
+- Classify: Read / Dml / Ddl / Txn / Other (unknown → deny)
+- Explicit deny labels: `COPY`, `CALL`, `ATTACH DATABASE`, `LOAD DATA`, `PREPARE`, `EXECUTE`
+- Complexity limits: max 8 joins, max subquery depth 5
 - Enforce against `WriteMode`
 - Inject `LIMIT` on SELECT when missing; clamp explicit `LIMIT` above `--max-rows`
 - `EXPLAIN ANALYZE` requires writes
 - Batch `queries[]` items are each parsed as a single statement
+
+### 1c. Timeouts
+
+- Client: `tokio::time::timeout` around execute (default `--query-timeout 10`)
+- Postgres: `SET statement_timeout` on each new pool connection
+- MySQL: `SET SESSION max_execution_time` (SELECT) on connect
+- SQLite: client timeout only (no server kill API via sqlx pool)
 
 ### 1b. Parameterized queries (`params`)
 

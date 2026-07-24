@@ -3,7 +3,8 @@ mod params;
 
 use serde_json::Value;
 use sqlparser::ast::{
-    Expr, LimitClause, Offset, OffsetRows, Query, Statement, Value as SqlValue,
+    Expr, LimitClause, Offset, OffsetRows, Query, SetExpr, Statement, TableFactor,
+    Value as SqlValue,
 };
 use sqlparser::dialect::{Dialect, MySqlDialect, PostgreSqlDialect, SQLiteDialect};
 use sqlparser::parser::Parser;
@@ -88,6 +89,7 @@ pub fn validate_and_prepare_with_options(
 
     let stmt = statements.into_iter().next().expect("checked len");
     let class = classify::classify(&stmt)?;
+    check_query_complexity(&stmt)?;
 
     if class.requires_writes_for_explain() && !write_mode.allows_dml() {
         return Err(GuardError::Denied(
@@ -95,15 +97,17 @@ pub fn validate_and_prepare_with_options(
         ));
     }
 
-    if let Statement::Explain { statement: inner, .. } = &stmt {
+    if let Statement::Explain {
+        statement: inner, ..
+    } = &stmt
+    {
         let inner_class = classify::classify(inner)?;
         enforce_write_mode(&inner_class, write_mode)?;
     }
 
     enforce_write_mode(&class, write_mode)?;
 
-    let wants_pagination =
-        prepare_opts.page_offset > 0 || prepare_opts.page_size.is_some();
+    let wants_pagination = prepare_opts.page_offset > 0 || prepare_opts.page_size.is_some();
     let page_size = prepare_opts.page_size.unwrap_or(default_limit as usize) as u32;
 
     let needs_limit = class.is_select_like()
@@ -179,9 +183,114 @@ fn enforce_write_mode(class: &StmtClass, mode: WriteMode) -> Result<(), GuardErr
             "DDL blocked; restart with --allow-ddl".into(),
         )),
         SqlClass::Other => Err(GuardError::Denied(format!(
-            "statement type not allowed: {}",
+            "statement type not allowed: {} (blocked for safety)",
             class.label()
         ))),
+    }
+}
+
+/// Soft limits to stop agent-generated Cartesian explosions before they hit the DB.
+const MAX_JOINS: u32 = 8;
+const MAX_SUBQUERY_DEPTH: u32 = 5;
+
+fn check_query_complexity(stmt: &Statement) -> Result<(), GuardError> {
+    let query = match stmt {
+        Statement::Query(q) => q.as_ref(),
+        Statement::Explain { statement, .. } => {
+            if let Statement::Query(q) = statement.as_ref() {
+                q.as_ref()
+            } else {
+                return Ok(());
+            }
+        }
+        _ => return Ok(()),
+    };
+    let (joins, depth) = complexity_of_set_expr(query.body.as_ref(), 0);
+    if joins > MAX_JOINS {
+        return Err(GuardError::Denied(format!(
+            "query too complex: {joins} joins (max {MAX_JOINS})"
+        )));
+    }
+    if depth > MAX_SUBQUERY_DEPTH {
+        return Err(GuardError::Denied(format!(
+            "query too complex: subquery depth {depth} (max {MAX_SUBQUERY_DEPTH})"
+        )));
+    }
+    Ok(())
+}
+
+fn complexity_of_set_expr(body: &SetExpr, depth: u32) -> (u32, u32) {
+    match body {
+        SetExpr::Select(select) => {
+            let mut joins = 0u32;
+            let mut max_depth = depth;
+            for twj in &select.from {
+                joins = joins.saturating_add(twj.joins.len() as u32);
+                let (j, d) = complexity_of_table_factor(&twj.relation, depth);
+                joins = joins.saturating_add(j);
+                max_depth = max_depth.max(d);
+                for join in &twj.joins {
+                    let (j2, d2) = complexity_of_table_factor(&join.relation, depth);
+                    joins = joins.saturating_add(j2);
+                    max_depth = max_depth.max(d2);
+                }
+            }
+            if let Some(selection) = &select.selection {
+                let (j, d) = complexity_of_expr(selection, depth);
+                joins = joins.saturating_add(j);
+                max_depth = max_depth.max(d);
+            }
+            (joins, max_depth)
+        }
+        SetExpr::Query(q) => complexity_of_set_expr(q.body.as_ref(), depth.saturating_add(1)),
+        SetExpr::SetOperation { left, right, .. } => {
+            let (jl, dl) = complexity_of_set_expr(left.as_ref(), depth);
+            let (jr, dr) = complexity_of_set_expr(right.as_ref(), depth);
+            (jl.saturating_add(jr), dl.max(dr))
+        }
+        _ => (0, depth),
+    }
+}
+
+fn complexity_of_table_factor(factor: &TableFactor, depth: u32) -> (u32, u32) {
+    match factor {
+        TableFactor::Derived { subquery, .. } => {
+            complexity_of_set_expr(subquery.body.as_ref(), depth.saturating_add(1))
+        }
+        TableFactor::NestedJoin {
+            table_with_joins, ..
+        } => {
+            let mut joins = table_with_joins.joins.len() as u32;
+            let (j, d) = complexity_of_table_factor(&table_with_joins.relation, depth);
+            joins = joins.saturating_add(j);
+            let mut max_depth = d;
+            for join in &table_with_joins.joins {
+                let (j2, d2) = complexity_of_table_factor(&join.relation, depth);
+                joins = joins.saturating_add(j2);
+                max_depth = max_depth.max(d2);
+            }
+            (joins, max_depth)
+        }
+        _ => (0, depth),
+    }
+}
+
+fn complexity_of_expr(expr: &Expr, depth: u32) -> (u32, u32) {
+    match expr {
+        Expr::Subquery(q) | Expr::InSubquery { subquery: q, .. } => {
+            complexity_of_set_expr(q.body.as_ref(), depth.saturating_add(1))
+        }
+        Expr::Exists { subquery, .. } => {
+            complexity_of_set_expr(subquery.body.as_ref(), depth.saturating_add(1))
+        }
+        Expr::BinaryOp { left, right, .. } => {
+            let (jl, dl) = complexity_of_expr(left, depth);
+            let (jr, dr) = complexity_of_expr(right, depth);
+            (jl.saturating_add(jr), dl.max(dr))
+        }
+        Expr::UnaryOp { expr, .. } => complexity_of_expr(expr, depth),
+        Expr::Nested(inner) => complexity_of_expr(inner, depth),
+        _ => (0, depth),
     }
 }
 
@@ -279,8 +388,14 @@ mod tests {
 
     #[test]
     fn allows_select_with_limit_injection() {
-        let p = validate_and_prepare("SELECT 1", &[], EngineKind::Postgres, WriteMode::ReadOnly, 100)
-            .unwrap();
+        let p = validate_and_prepare(
+            "SELECT 1",
+            &[],
+            EngineKind::Postgres,
+            WriteMode::ReadOnly,
+            100,
+        )
+        .unwrap();
         assert!(p.limit_injected);
         assert!(p.sql.ends_with("LIMIT 100"));
     }
@@ -395,5 +510,51 @@ mod tests {
         .unwrap();
         assert!(p.limit_clamped);
         assert_eq!(placeholder_count(&p.sql, EngineKind::Postgres), 1);
+    }
+
+    #[test]
+    fn blocks_copy_explicitly() {
+        let err = validate_and_prepare(
+            "COPY users FROM STDIN",
+            &[],
+            EngineKind::Postgres,
+            WriteMode::AllowDdl,
+            100,
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("COPY"));
+    }
+
+    #[test]
+    fn blocks_attach_database_sqlite() {
+        let err = validate_and_prepare(
+            "ATTACH DATABASE 'other.db' AS other",
+            &[],
+            EngineKind::Sqlite,
+            WriteMode::AllowDdl,
+            100,
+        )
+        .unwrap_err();
+        assert!(
+            err.to_string().contains("ATTACH") || err.to_string().contains("not allowed"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn blocks_excessive_joins() {
+        let sql = "SELECT * FROM a \
+            JOIN b ON a.id = b.id \
+            JOIN c ON b.id = c.id \
+            JOIN d ON c.id = d.id \
+            JOIN e ON d.id = e.id \
+            JOIN f ON e.id = f.id \
+            JOIN g ON f.id = g.id \
+            JOIN h ON g.id = h.id \
+            JOIN i ON h.id = i.id \
+            JOIN j ON i.id = j.id";
+        let err = validate_and_prepare(sql, &[], EngineKind::Postgres, WriteMode::ReadOnly, 100)
+            .unwrap_err();
+        assert!(err.to_string().contains("joins"), "{err}");
     }
 }

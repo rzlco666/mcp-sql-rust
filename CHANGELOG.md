@@ -1,5 +1,33 @@
 # Changelog
 
+## 1.0.0 — 2026-07-24
+
+**Strut Stack SQL** — first stable release (rebrand from `mcp-sql-rust`).
+
+### Product
+
+- Binary / crate: `strut-stack-sql` (compat alias `mcp-sql-rust`)
+- Repo: https://github.com/rzlco666/strut-stack-sql
+- Default result format: **columnar** (token-efficient)
+- One-command install + friendly release asset names (`strut-stack-sql-linux-x64.tar.gz`, …)
+
+### Reliability
+
+- Cursor launcher never blocks MCP initialize on missing `.env` / dead DB (warn + lazy connect)
+- Server starts without `DATABASE_URL` via ephemeral `sqlite::memory:`
+- Env discovery prefers `apps/api/.env` and other nested paths
+
+### Safety
+
+- Explicit deny: `COPY`, `CALL`, `ATTACH DATABASE`, `LOAD DATA`, `PREPARE`, `EXECUTE`
+- Query complexity limits (joins / subquery depth)
+- PG `statement_timeout` + MySQL `max_execution_time` on pool connect (plus client timeout)
+
+### Footprint
+
+- Release profile: `opt-level=3`, thin LTO, strip, `panic=abort`
+- Linux x64 stripped binary ≈ **15 MB** (three engines)
+
 ## 0.5.2 — 2026-07-14
 
 ### P0 — Metadata

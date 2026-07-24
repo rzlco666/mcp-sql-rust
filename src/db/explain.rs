@@ -1,8 +1,8 @@
 use std::time::Duration;
 
-use sqlx::Row;
 use serde::Serialize;
 use serde_json::Value;
+use sqlx::Row;
 
 use crate::config::WriteMode;
 use crate::db::bind::{bind_mysql_params, bind_pg_params, bind_sqlite_params};
@@ -96,7 +96,9 @@ async fn fetch_explain_json(
 ) -> Result<Value, ExplainError> {
     match engine {
         EngineKind::Postgres => {
-            let pool = pool.postgres().map_err(|e| ExplainError::Other(e.to_string()))?;
+            let pool = pool
+                .postgres()
+                .map_err(|e| ExplainError::Other(e.to_string()))?;
             let row = bind_pg_params(explain_sql, params)
                 .map_err(|e| ExplainError::Other(e.to_string()))?
                 .fetch_one(pool)
@@ -105,7 +107,9 @@ async fn fetch_explain_json(
             Ok(val)
         }
         EngineKind::Mysql => {
-            let pool = pool.mysql().map_err(|e| ExplainError::Other(e.to_string()))?;
+            let pool = pool
+                .mysql()
+                .map_err(|e| ExplainError::Other(e.to_string()))?;
             let row = bind_mysql_params(explain_sql, params)
                 .map_err(|e| ExplainError::Other(e.to_string()))?
                 .fetch_one(pool)
@@ -126,7 +130,9 @@ async fn fetch_explain_sqlite(
     explain_sql: &str,
     params: &[Value],
 ) -> Result<Vec<String>, ExplainError> {
-    let pool = pool.sqlite().map_err(|e| ExplainError::Other(e.to_string()))?;
+    let pool = pool
+        .sqlite()
+        .map_err(|e| ExplainError::Other(e.to_string()))?;
     let rows = bind_sqlite_params(explain_sql, params)
         .map_err(|e| ExplainError::Other(e.to_string()))?
         .fetch_all(pool)
@@ -185,7 +191,12 @@ fn sqlite_relation_from_detail(detail: &str) -> Option<String> {
     }
     if let Some(idx) = detail.to_uppercase().find("SEARCH TABLE ") {
         let rest = &detail[idx + "SEARCH TABLE ".len()..];
-        return Some(rest.split_whitespace().next()?.trim_matches('"').to_string());
+        return Some(
+            rest.split_whitespace()
+                .next()?
+                .trim_matches('"')
+                .to_string(),
+        );
     }
     None
 }
@@ -214,9 +225,7 @@ fn normalize_postgres(query: &str, json: Value) -> ExplainSummary {
     if let Some(arr) = json.as_array() {
         if let Some(plan_root) = arr.first().and_then(|v| v.get("Plan")) {
             walk_pg_plan(plan_root, &mut nodes, &mut warnings);
-            total_cost = plan_root
-                .get("Total Cost")
-                .and_then(|v| v.as_f64());
+            total_cost = plan_root.get("Total Cost").and_then(|v| v.as_f64());
             plan_rows = plan_root.get("Plan Rows").and_then(|v| v.as_i64());
         }
     }
@@ -235,7 +244,7 @@ fn normalize_postgres(query: &str, json: Value) -> ExplainSummary {
     }
 }
 
-fn walk_pg_plan(plan: &Value, nodes: &mut Vec<PlanNode>, warnings: &mut Vec<String>) {
+fn walk_pg_plan(plan: &Value, nodes: &mut Vec<PlanNode>, _warnings: &mut Vec<String>) {
     let node_type = plan
         .get("Node Type")
         .and_then(|v| v.as_str())
@@ -273,7 +282,7 @@ fn walk_pg_plan(plan: &Value, nodes: &mut Vec<PlanNode>, warnings: &mut Vec<Stri
 
     if let Some(children) = plan.get("Plans").and_then(|v| v.as_array()) {
         for child in children {
-            walk_pg_plan(child, nodes, warnings);
+            walk_pg_plan(child, nodes, _warnings);
         }
     }
 }
@@ -299,7 +308,10 @@ fn normalize_mysql(query: &str, json: Value) -> ExplainSummary {
         plan_rows = nodes.iter().filter_map(|n| n.rows).max();
     }
 
-    if nodes.iter().any(|n| n.node_type.to_uppercase().contains("ALL")) {
+    if nodes
+        .iter()
+        .any(|n| n.node_type.to_uppercase().contains("ALL"))
+    {
         warnings.push("Full table scan (type ALL) — consider adding an index".into());
     }
 

@@ -1,6 +1,6 @@
 # Quickstart
 
-Get **mcp-sql-rust** talking to real databases in about a minute.
+Get **strut-stack-sql** talking to real databases in about a minute.
 
 ## Prerequisites
 
@@ -21,8 +21,8 @@ First container build may take ~3 minutes.
 ## Option B — Docker Compose only
 
 ```bash
-git clone https://github.com/rzlco666/mcp-sql-rust.git
-cd mcp-sql-rust
+git clone https://github.com/rzlco666/strut-stack-sql.git
+cd strut-stack-sql
 docker compose up -d
 cp .env.example .env
 cargo build --release
@@ -44,7 +44,7 @@ Project `.cursor/mcp.json` or user MCP settings:
 {
   "mcpServers": {
     "sql": {
-      "command": "/workspaces/mcp-sql-rust/target/debug/mcp-sql-rust",
+      "command": "/workspaces/strut-stack-sql/target/debug/strut-stack-sql",
       "args": [],
       "env": {
         "DATABASE_URL": "postgresql://demo:demo@postgres:5432/demo"
@@ -62,7 +62,7 @@ For a release binary on the host:
 {
   "mcpServers": {
     "sql": {
-      "command": "mcp-sql-rust",
+      "command": "strut-stack-sql",
       "args": []
     }
   }
@@ -121,7 +121,7 @@ Schema: `demo` (Postgres) / database `demo` (MySQL).
 Default is read-only. To demo INSERT:
 
 ```bash
-mcp-sql-rust --allow-writes
+strut-stack-sql --allow-writes
 ```
 
 DDL (`CREATE TABLE`, etc.) requires `--allow-ddl`. See [SECURITY.md](SECURITY.md).
@@ -129,7 +129,7 @@ DDL (`CREATE TABLE`, etc.) requires `--allow-ddl`. See [SECURITY.md](SECURITY.md
 ## HTTP mode (optional)
 
 ```bash
-mcp-sql-rust --http 127.0.0.1:8080
+strut-stack-sql --http 127.0.0.1:8080
 curl -s http://127.0.0.1:8080/healthz
 ```
 

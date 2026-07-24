@@ -1,4 +1,4 @@
-# Architecture — mcp-sql-rust
+# Architecture — strut-stack-sql
 
 ## Purpose
 
@@ -13,7 +13,7 @@ Expose MySQL, PostgreSQL, and SQLite to AI agents via the [Model Context Protoco
 
 ```mermaid
 flowchart TB
-  Agent[AI Agent Cursor/OpenCode] -->|stdio or HTTP /mcp| Server[mcp-sql-rust]
+  Agent[AI Agent Cursor/OpenCode] -->|stdio or HTTP /mcp| Server[strut-stack-sql]
   Server --> Cfg[Config dotenvy + TOML]
   Server --> Tools[Tool Router]
   Tools --> Guard[sqlparser AST Guard]
@@ -92,8 +92,8 @@ src/
 |---------|------------------|
 | GitHub Releases | `.tar.gz` (Linux/macOS), `.zip` (Windows), `SHA256SUMS`, `.mcpb` |
 | curl | [`install.sh`](../install.sh) |
-| Homebrew | `packaging/homebrew/mcp-sql-rust.rb` |
-| Docker | [`Dockerfile`](../Dockerfile) → `ghcr.io/rzlco666/mcp-sql-rust` |
+| Homebrew | `packaging/homebrew/strut-stack-sql.rb` |
+| Docker | [`Dockerfile`](../Dockerfile) → `ghcr.io/rzlco666/strut-stack-sql` |
 | cargo-binstall | `[package.metadata.binstall]` in `Cargo.toml` |
 
 See [INSTALL.md](INSTALL.md).

@@ -83,6 +83,8 @@ pub struct LazyEnginePool {
     pool_size: u32,
     read_only: bool,
     connect_timeout: Duration,
+    /// Server-side statement timeout applied on each new connection (PG/MySQL).
+    statement_timeout: Duration,
     inner: Arc<Mutex<Option<EnginePool>>>,
 }
 
@@ -93,6 +95,7 @@ impl LazyEnginePool {
         pool_size: u32,
         read_only: bool,
         connect_timeout: Duration,
+        statement_timeout: Duration,
     ) -> Self {
         Self {
             url,
@@ -100,23 +103,20 @@ impl LazyEnginePool {
             pool_size,
             read_only,
             connect_timeout,
+            statement_timeout,
             inner: Arc::new(Mutex::new(None)),
         }
     }
 
     /// Pre-populate an already-connected pool (integration tests).
-    pub fn with_pool(
-        url: String,
-        engine: EngineKind,
-        pool: EnginePool,
-        read_only: bool,
-    ) -> Self {
+    pub fn with_pool(url: String, engine: EngineKind, pool: EnginePool, read_only: bool) -> Self {
         Self {
             url,
             engine,
             pool_size: 1,
             read_only,
             connect_timeout: CONNECT_TIMEOUT,
+            statement_timeout: Duration::from_secs(DEFAULT_CONNECT_TIMEOUT_SECS.max(10)),
             inner: Arc::new(Mutex::new(Some(pool))),
         }
     }
@@ -132,15 +132,10 @@ impl LazyEnginePool {
             self.pool_size,
             self.read_only,
             self.connect_timeout,
+            self.statement_timeout,
         )
         .await
-        .map_err(|e| {
-            anyhow::anyhow!(
-                "cannot connect to {}: {}",
-                redact_url(&self.url),
-                e
-            )
-        })?;
+        .map_err(|e| anyhow::anyhow!("cannot connect to {}: {}", redact_url(&self.url), e))?;
         *guard = Some(pool.clone());
         Ok(pool)
     }
@@ -156,44 +151,61 @@ pub async fn connect_pool(
     pool_size: u32,
     read_only: bool,
     connect_timeout: Duration,
+    statement_timeout: Duration,
 ) -> Result<EnginePool> {
     if !matches!(engine, EngineKind::Sqlite) {
         tcp_preflight(url, engine).await?;
     }
+
+    let stmt_ms = statement_timeout.as_millis().max(1) as u64;
 
     match engine {
         EngineKind::Postgres => {
             let mut options = PgPoolOptions::new()
                 .max_connections(pool_size)
                 .acquire_timeout(connect_timeout)
-                .idle_timeout(Duration::from_secs(30));
-            if read_only {
-                options = options.after_connect(|conn, _meta| {
-                    Box::pin(async move {
+                .idle_timeout(Duration::from_secs(45))
+                .max_lifetime(Duration::from_secs(300))
+                .test_before_acquire(true);
+            let ro = read_only;
+            options = options.after_connect(move |conn, _meta| {
+                Box::pin(async move {
+                    sqlx::query(&format!("SET statement_timeout = '{stmt_ms}ms'"))
+                        .execute(&mut *conn)
+                        .await?;
+                    if ro {
                         sqlx::query("SET default_transaction_read_only = on")
-                            .execute(conn)
+                            .execute(&mut *conn)
                             .await?;
-                        Ok(())
-                    })
-                });
-            }
+                    }
+                    Ok(())
+                })
+            });
             let pool = options.connect(url).await?;
             Ok(EnginePool::Postgres(pool))
         }
         EngineKind::Mysql => {
             let mut options = MySqlPoolOptions::new()
                 .max_connections(pool_size)
-                .acquire_timeout(connect_timeout);
-            if read_only {
-                options = options.after_connect(|conn, _meta| {
-                    Box::pin(async move {
+                .acquire_timeout(connect_timeout)
+                .idle_timeout(Duration::from_secs(45))
+                .max_lifetime(Duration::from_secs(300))
+                .test_before_acquire(true);
+            let ro = read_only;
+            options = options.after_connect(move |conn, _meta| {
+                Box::pin(async move {
+                    // max_execution_time is SELECT-only (ms); still helps agent runaway reads.
+                    let _ = sqlx::query(&format!("SET SESSION max_execution_time = {stmt_ms}"))
+                        .execute(&mut *conn)
+                        .await;
+                    if ro {
                         sqlx::query("SET SESSION TRANSACTION READ ONLY")
-                            .execute(conn)
+                            .execute(&mut *conn)
                             .await?;
-                        Ok(())
-                    })
-                });
-            }
+                    }
+                    Ok(())
+                })
+            });
             let pool = options.connect(url).await?;
             Ok(EnginePool::Mysql(pool))
         }
@@ -201,7 +213,10 @@ pub async fn connect_pool(
             let connect_url = sqlite_connect_url(url, read_only);
             let options = SqlitePoolOptions::new()
                 .max_connections(pool_size)
-                .acquire_timeout(connect_timeout);
+                .acquire_timeout(connect_timeout)
+                .idle_timeout(Duration::from_secs(45))
+                .max_lifetime(Duration::from_secs(300))
+                .test_before_acquire(true);
             let pool = options.connect(&connect_url).await?;
             Ok(EnginePool::Sqlite(pool))
         }

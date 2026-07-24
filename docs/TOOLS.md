@@ -1,4 +1,4 @@
-# MCP Tools — mcp-sql-rust
+# MCP Tools — strut-stack-sql
 
 Demo data for examples below: `docker compose up -d` + [`.env.example`](../.env.example) (`demo.users`, `demo.orders` on Postgres port **5433**).
 

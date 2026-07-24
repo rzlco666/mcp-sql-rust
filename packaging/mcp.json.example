@@ -1,14 +1,14 @@
 {
   "mcpServers": {
-    "mcp-sql-rust": {
+    "strut-stack-sql": {
       "type": "stdio",
       "command": "node",
       "args": [
-        "/absolute/path/to/mcp-sql-rust/packaging/cursor-mcp-launcher.mjs",
+        "/absolute/path/to/strut-stack-sql/packaging/cursor-mcp-launcher.mjs",
         "${workspaceFolder}"
       ],
       "env": {
-        "MCP_SQL_RUST_BIN": "/home/you/.cargo/bin/mcp-sql-rust",
+        "MCP_SQL_RUST_BIN": "/home/you/.cargo/bin/strut-stack-sql",
         "MCP_SQL_ARGS": "--allow-writes --full-tools"
       }
     }

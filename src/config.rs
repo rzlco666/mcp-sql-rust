@@ -34,7 +34,11 @@ impl WriteMode {
 }
 
 #[derive(Debug, Parser)]
-#[command(name = "mcp-sql-rust", version, about = "Token-efficient MCP server for MySQL, PostgreSQL, and SQLite")]
+#[command(
+    name = "strut-stack-sql",
+    version,
+    about = "Strut Stack SQL — token-efficient MCP for MySQL, PostgreSQL, and SQLite"
+)]
 pub struct Cli {
     /// Database connection URL (overrides .env discovery).
     #[arg(long)]
@@ -44,7 +48,7 @@ pub struct Cli {
     #[arg(long)]
     pub url_env: Option<String>,
 
-    /// Path to mcp-sql-rust.toml for multi-source configuration.
+    /// Path to strut-stack-sql.toml for multi-source configuration.
     #[arg(long)]
     pub config: Option<PathBuf>,
 
@@ -200,6 +204,7 @@ pub async fn load_config(cli: &Cli) -> Result<AppConfig> {
     let read_only = !write_mode.allows_dml();
     let pool_size = cli.pool_size;
     let connect_timeout = Duration::from_secs(cli.connect_timeout);
+    let statement_timeout = Duration::from_secs(cli.query_timeout);
     let mut sources = HashMap::new();
 
     if let Some(path) = &cli.config {
@@ -223,6 +228,7 @@ pub async fn load_config(cli: &Cli) -> Result<AppConfig> {
                         pool_size,
                         read_only,
                         connect_timeout,
+                        statement_timeout,
                     ),
                 },
             );
@@ -252,7 +258,18 @@ pub async fn load_config(cli: &Cli) -> Result<AppConfig> {
         std::env::var(env_key)
             .with_context(|| format!("environment variable '{env_key}' is not set"))?
     } else {
-        resolve_url_from_env()?
+        match resolve_url_from_env() {
+            Ok(url) => url,
+            Err(err) => {
+                // Allow MCP initialize / tools/list without credentials.
+                // First tool call that needs a real DB should set DATABASE_URL.
+                tracing::warn!(
+                    error = %err,
+                    "no database URL; using ephemeral sqlite::memory: so the server can start"
+                );
+                "sqlite::memory:".to_string()
+            }
+        }
     };
 
     let url = resolve_sqlite_path(&url, workspace.as_deref());
@@ -263,7 +280,14 @@ pub async fn load_config(cli: &Cli) -> Result<AppConfig> {
             name: "default".into(),
             url: url.clone(),
             engine,
-            lazy_pool: LazyEnginePool::new(url, engine, pool_size, read_only, connect_timeout),
+            lazy_pool: LazyEnginePool::new(
+                url,
+                engine,
+                pool_size,
+                read_only,
+                connect_timeout,
+                statement_timeout,
+            ),
         },
     );
 
@@ -350,16 +374,17 @@ fn resolve_url_from_env() -> Result<String> {
     }
 
     bail!(
-        "no database credentials found. Set DATABASE_URL in .env, use --url, or provide mcp-sql-rust.toml"
+        "no database credentials found. Set DATABASE_URL in .env, use --url, or provide strut-stack-sql.toml"
     )
 }
 
 fn resolve_url(url: Option<&str>, url_env: Option<&str>) -> Result<String> {
     if let Some(raw) = url {
-        return Ok(expand_env_placeholders(raw)?);
+        return expand_env_placeholders(raw);
     }
     if let Some(key) = url_env {
-        return std::env::var(key).with_context(|| format!("environment variable '{key}' is not set"));
+        return std::env::var(key)
+            .with_context(|| format!("environment variable '{key}' is not set"));
     }
     resolve_url_from_env()
 }
@@ -367,7 +392,8 @@ fn resolve_url(url: Option<&str>, url_env: Option<&str>) -> Result<String> {
 fn expand_env_placeholders(raw: &str) -> Result<String> {
     if raw.starts_with("${") && raw.ends_with('}') {
         let key = &raw[2..raw.len() - 1];
-        return std::env::var(key).with_context(|| format!("environment variable '{key}' is not set"));
+        return std::env::var(key)
+            .with_context(|| format!("environment variable '{key}' is not set"));
     }
     Ok(raw.to_string())
 }
@@ -389,9 +415,7 @@ fn build_postgres_url_from_parts() -> Option<String> {
     let port = std::env::var("POSTGRES_PORT")
         .or_else(|_| std::env::var("PGPORT"))
         .unwrap_or_else(|_| "5432".into());
-    Some(format!(
-        "postgresql://{user}:{password}@{host}:{port}/{db}"
-    ))
+    Some(format!("postgresql://{user}:{password}@{host}:{port}/{db}"))
 }
 
 fn build_mysql_url_from_parts() -> Option<String> {
@@ -443,10 +467,7 @@ mod tests {
 
     #[test]
     fn resolve_sqlite_relative_path() {
-        let url = resolve_sqlite_path(
-            "sqlite://./data.db",
-            Some(Path::new("/workspace/proj")),
-        );
+        let url = resolve_sqlite_path("sqlite://./data.db", Some(Path::new("/workspace/proj")));
         assert!(url.contains("/workspace/proj/data.db"));
     }
 }

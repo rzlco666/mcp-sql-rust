@@ -10,9 +10,7 @@ use crate::db::bind::{bind_mysql_params, bind_pg_params, bind_sqlite_params};
 use crate::db::value::{decode_mysql_cell, decode_pg_cell, decode_sqlite_cell};
 use crate::db::{EngineKind, EnginePool};
 use crate::format::{truncate_to_bytes, ColumnarMeta, ColumnarResult};
-use crate::guard::{
-    validate_and_prepare_with_options, GuardError, PrepareOptions,
-};
+use crate::guard::{validate_and_prepare_with_options, GuardError, PrepareOptions};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ExecError {
@@ -85,9 +83,7 @@ pub async fn execute_query(
         return Ok(QueryResult {
             ok: false,
             data: None,
-            error: Some(
-                "EXPLAIN ANALYZE executes the query and requires --allow-writes".into(),
-            ),
+            error: Some("EXPLAIN ANALYZE executes the query and requires --allow-writes".into()),
         });
     }
 
@@ -153,9 +149,12 @@ pub async fn execute_query(
                 duration_ms = started.elapsed().as_millis() as u64,
                 engine = ?engine,
                 error = "query_timeout",
-                "query failed"
+                "query failed (client timeout; server statement_timeout should also abort PG/MySQL)"
             );
-            Err(ExecError::Other("query timeout".into()))
+            Err(ExecError::Other(
+                "query timeout (client limit; server-side statement_timeout also applied on PG/MySQL)"
+                    .into(),
+            ))
         }
     };
 
@@ -169,7 +168,7 @@ pub async fn execute_batch(
     concurrency: usize,
     fail_fast: bool,
 ) -> BatchResult {
-    let results = stream::iter(queries.into_iter())
+    let results = stream::iter(queries)
         .map(|(sql, params)| {
             let pool = pool.clone();
             let opts = opts.clone();
@@ -207,7 +206,9 @@ async fn run_sql(
 ) -> Result<ColumnarResult, ExecError> {
     match engine {
         EngineKind::Postgres => {
-            let pool = pool.postgres().map_err(|e| ExecError::Other(e.to_string()))?;
+            let pool = pool
+                .postgres()
+                .map_err(|e| ExecError::Other(e.to_string()))?;
             if is_select_like(sql) {
                 let rows = bind_pg_params(sql, params)
                     .map_err(|e| ExecError::Other(e.to_string()))?
@@ -397,4 +398,3 @@ fn empty_columnar() -> ColumnarResult {
         },
     }
 }
-

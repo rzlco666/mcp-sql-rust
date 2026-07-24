@@ -1,4 +1,4 @@
-# PostgreSQL — mcp-sql-rust notes
+# PostgreSQL — strut-stack-sql notes
 
 ## Connection
 

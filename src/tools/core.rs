@@ -104,15 +104,12 @@ pub fn tool_error(msg: impl Into<String>) -> McpError {
 }
 
 pub fn json_result<T: serde::Serialize>(value: &T) -> Result<CallToolResult, McpError> {
-    Ok(CallToolResult::success(vec![ContentBlock::text(to_json_text(
-        value,
-    ))]))
+    Ok(CallToolResult::success(vec![ContentBlock::text(
+        to_json_text(value),
+    )]))
 }
 
-fn format_query_result(
-    result: &crate::db::QueryResult,
-    format: ResultFormat,
-) -> serde_json::Value {
+fn format_query_result(result: &crate::db::QueryResult, format: ResultFormat) -> serde_json::Value {
     let mut out = serde_json::json!({
         "ok": result.ok,
         "error": result.error,
@@ -123,10 +120,7 @@ fn format_query_result(
     out
 }
 
-fn format_batch_result(
-    batch: &crate::db::BatchResult,
-    format: ResultFormat,
-) -> serde_json::Value {
+fn format_batch_result(batch: &crate::db::BatchResult, format: ResultFormat) -> serde_json::Value {
     serde_json::json!({
         "results": batch
             .results
@@ -143,10 +137,7 @@ pub async fn handle_search_objects(
     let source = config
         .source(params.source.as_deref())
         .map_err(|e| tool_error(e.to_string()))?;
-    let pool = source
-        .pool()
-        .await
-        .map_err(|e| tool_error(e.to_string()))?;
+    let pool = source.pool().await.map_err(|e| tool_error(e.to_string()))?;
     let offset = params.offset.unwrap_or(0);
     let limit = params.limit.unwrap_or(50).min(200);
 
@@ -192,10 +183,7 @@ pub async fn handle_execute_sql(
         if queries.is_empty() {
             return Err(tool_error("queries array is empty"));
         }
-        let pool = source
-            .pool()
-            .await
-            .map_err(|e| tool_error(e.to_string()))?;
+        let pool = source.pool().await.map_err(|e| tool_error(e.to_string()))?;
         let batch_items: Vec<(String, Vec<Value>)> =
             queries.into_iter().map(|q| q.into_sql_params()).collect();
         let batch = execute_batch(
@@ -219,10 +207,7 @@ pub async fn handle_execute_sql(
     opts.page_offset = params.page_offset.unwrap_or(0);
     opts.page_size = params.page_size;
 
-    let pool = source
-        .pool()
-        .await
-        .map_err(|e| tool_error(e.to_string()))?;
+    let pool = source.pool().await.map_err(|e| tool_error(e.to_string()))?;
     let result = execute_query(&pool, &sql, &query_params, &opts)
         .await
         .map_err(|e| tool_error(e.to_string()))?;
@@ -239,10 +224,7 @@ pub async fn handle_analyze_query(
         .source(params.source.as_deref())
         .map_err(|e| tool_error(e.to_string()))?;
 
-    let pool = source
-        .pool()
-        .await
-        .map_err(|e| tool_error(e.to_string()))?;
+    let pool = source.pool().await.map_err(|e| tool_error(e.to_string()))?;
 
     let summary = analyze_query(
         &pool,

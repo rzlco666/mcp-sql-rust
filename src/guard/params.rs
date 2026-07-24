@@ -47,7 +47,11 @@ pub fn placeholder_count(sql: &str, engine: EngineKind) -> usize {
     0
 }
 
-pub fn validate_param_count(sql: &str, params: &[Value], engine: EngineKind) -> Result<(), GuardError> {
+pub fn validate_param_count(
+    sql: &str,
+    params: &[Value],
+    engine: EngineKind,
+) -> Result<(), GuardError> {
     let qm = count_question_mark_placeholders(sql);
     let pg_num = count_pg_numbered_placeholders(sql);
 
@@ -70,7 +74,9 @@ pub fn validate_param_count(sql: &str, params: &[Value], engine: EngineKind) -> 
     };
 
     if expected == 0 && !params.is_empty() {
-        return Err(GuardError::Denied("unexpected params for SQL without placeholders".into()));
+        return Err(GuardError::Denied(
+            "unexpected params for SQL without placeholders".into(),
+        ));
     }
     if params.len() != expected {
         return Err(GuardError::Denied(format!(
@@ -380,7 +386,10 @@ mod tests {
 
     #[test]
     fn counts_question_marks_outside_strings() {
-        assert_eq!(count_question_mark_placeholders("SELECT * FROM t WHERE id = ?"), 1);
+        assert_eq!(
+            count_question_mark_placeholders("SELECT * FROM t WHERE id = ?"),
+            1
+        );
         assert_eq!(
             count_question_mark_placeholders("SELECT '?' AS q, ? AS p"),
             1
@@ -405,10 +414,10 @@ mod tests {
         validate_param_count("SELECT 1", &[], EngineKind::Mysql).unwrap();
         validate_param_count("SELECT ? AS v", &[Value::from(1)], EngineKind::Mysql).unwrap();
         validate_param_count("SELECT ? AS v", &[Value::from(1)], EngineKind::Sqlite).unwrap();
-        let err = validate_param_count("SELECT 1", &[Value::from(1)], EngineKind::Mysql).unwrap_err();
-        assert!(err.to_string().contains("unexpected params"));
         let err =
-            validate_param_count("SELECT ?", &[], EngineKind::Mysql).unwrap_err();
+            validate_param_count("SELECT 1", &[Value::from(1)], EngineKind::Mysql).unwrap_err();
+        assert!(err.to_string().contains("unexpected params"));
+        let err = validate_param_count("SELECT ?", &[], EngineKind::Mysql).unwrap_err();
         assert!(err.to_string().contains("mismatch"));
     }
 

@@ -1,16 +1,16 @@
 {
   "manifest_version": "0.2",
-  "name": "mcp-sql-rust",
-  "version": "0.4.0",
-  "description": "Token-efficient MCP server for MySQL, PostgreSQL, and SQLite",
+  "name": "strut-stack-sql",
+  "version": "1.0.0",
+  "description": "Strut Stack SQL — token-efficient MCP for MySQL, PostgreSQL, and SQLite",
   "author": {
     "name": "rzlco666"
   },
   "server": {
     "type": "binary",
-    "entry_point": "mcp-sql-rust",
+    "entry_point": "strut-stack-sql",
     "mcp_config": {
-      "command": "${__dirname}/mcp-sql-rust",
+      "command": "${__dirname}/strut-stack-sql",
       "args": []
     }
   },
@@ -19,7 +19,7 @@
       "type": "string",
       "title": "DATABASE_URL",
       "description": "Database connection URL (postgresql://, mysql://, or sqlite:)",
-      "required": true,
+      "required": false,
       "sensitive": true
     }
   }

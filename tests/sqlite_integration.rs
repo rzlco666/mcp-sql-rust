@@ -2,12 +2,14 @@
 
 use std::time::Duration;
 
-use mcp_sql_rust::config::WriteMode;
-use mcp_sql_rust::db::{analyze_query, describe_table, execute_query, list_tables, ExecOptions, EnginePool};
-use mcp_sql_rust::db::EngineKind;
-use mcp_sql_rust::guard::validate_and_prepare;
 use serde_json::{json, Value};
 use sqlx::sqlite::SqlitePoolOptions;
+use strut_stack_sql::config::WriteMode;
+use strut_stack_sql::db::EngineKind;
+use strut_stack_sql::db::{
+    analyze_query, describe_table, execute_query, list_tables, EnginePool, ExecOptions,
+};
+use strut_stack_sql::guard::validate_and_prepare;
 
 async fn sqlite_pool() -> EnginePool {
     let pool = SqlitePoolOptions::new()
@@ -214,42 +216,27 @@ async fn sqlite_execute_sql_pagination() {
 
     read_opts.page_size = Some(50);
     read_opts.page_offset = 0;
-    let page1 = execute_query(
-        &pool,
-        "SELECT id FROM pages ORDER BY id",
-        &[],
-        &read_opts,
-    )
-    .await
-    .expect("page 1");
+    let page1 = execute_query(&pool, "SELECT id FROM pages ORDER BY id", &[], &read_opts)
+        .await
+        .expect("page 1");
     let data1 = page1.data.expect("page1 data");
     assert_eq!(data1.rows.len(), 50);
     assert_eq!(data1.meta.has_more, Some(true));
     assert_eq!(data1.meta.total_fetched, Some(51));
 
     read_opts.page_offset = 50;
-    let page2 = execute_query(
-        &pool,
-        "SELECT id FROM pages ORDER BY id",
-        &[],
-        &read_opts,
-    )
-    .await
-    .expect("page 2");
+    let page2 = execute_query(&pool, "SELECT id FROM pages ORDER BY id", &[], &read_opts)
+        .await
+        .expect("page 2");
     let data2 = page2.data.expect("page2 data");
     assert_eq!(data2.rows.len(), 50);
     assert_eq!(data2.meta.has_more, Some(true));
     assert_eq!(data2.meta.total_fetched, Some(100));
 
     read_opts.page_offset = 100;
-    let page3 = execute_query(
-        &pool,
-        "SELECT id FROM pages ORDER BY id",
-        &[],
-        &read_opts,
-    )
-    .await
-    .expect("page 3");
+    let page3 = execute_query(&pool, "SELECT id FROM pages ORDER BY id", &[], &read_opts)
+        .await
+        .expect("page 3");
     let data3 = page3.data.expect("page3 data");
     assert_eq!(data3.rows.len(), 50);
     assert_eq!(data3.meta.has_more, Some(false));

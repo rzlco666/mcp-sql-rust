@@ -1,19 +1,19 @@
 [package]
-name = "mcp-sql-rust"
-version = "0.5.2"
+name = "strut-stack-sql"
+version = "1.0.0"
 edition = "2021"
 rust-version = "1.88"
-description = "Token-efficient MCP server for MySQL, PostgreSQL, and SQLite — written in Rust"
+description = "Strut Stack SQL — token-efficient MCP server for MySQL, PostgreSQL, and SQLite"
 license = "MIT"
-repository = "https://github.com/rzlco666/mcp-sql-rust"
-homepage = "https://github.com/rzlco666/mcp-sql-rust"
+repository = "https://github.com/rzlco666/strut-stack-sql"
+homepage = "https://github.com/rzlco666/strut-stack-sql"
 readme = "README.md"
-keywords = ["mcp", "mysql", "postgresql", "sqlite", "sql", "ai-agent"]
+keywords = ["mcp", "mysql", "postgresql", "sqlite", "sql", "ai-agent", "strut-stack"]
 categories = ["command-line-utilities", "database"]
 publish = false
 
 [package.metadata.binstall]
-pkg-url = "{ repo }/releases/download/v{ version }/mcp-sql-rust-{ target }.{ archive-format }"
+pkg-url = "{ repo }/releases/download/v{ version }/strut-stack-sql-{ target-family }-{ target-arch }.{ archive-format }"
 pkg-fmt = "tgz"
 bin-dir = "{ bin }{ binary-ext }"
 
@@ -21,8 +21,17 @@ bin-dir = "{ bin }{ binary-ext }"
 pkg-fmt = "zip"
 
 [[bin]]
+name = "strut-stack-sql"
+path = "src/main.rs"
+
+# Compat alias for one release cycle (mcp-sql-rust configs / wrappers).
+[[bin]]
 name = "mcp-sql-rust"
 path = "src/main.rs"
+
+[lib]
+name = "strut_stack_sql"
+path = "src/lib.rs"
 
 [dependencies]
 anyhow = "1"
@@ -80,6 +89,8 @@ sqlx = { version = "0.8", default-features = false, features = [
 ] }
 
 [profile.release]
+opt-level = 3
 lto = "thin"
 codegen-units = 1
 strip = "symbols"
+panic = "abort"

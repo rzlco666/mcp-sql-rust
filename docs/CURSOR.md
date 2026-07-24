@@ -1,4 +1,4 @@
-# Cursor IDE setup — mcp-sql-rust
+# Cursor IDE setup — strut-stack-sql
 
 Zero-config global MCP for MySQL, PostgreSQL, and SQLite using the official launcher in this repo.
 
@@ -7,8 +7,8 @@ Zero-config global MCP for MySQL, PostgreSQL, and SQLite using the official laun
 1. Build or install the binary:
 
 ```bash
-cargo install --path /path/to/mcp-sql-rust
-# binary: ~/.cargo/bin/mcp-sql-rust
+cargo install --path /path/to/strut-stack-sql
+# binary: ~/.cargo/bin/strut-stack-sql
 ```
 
 2. Each project needs a `.env` with `DATABASE_URL` (or `MYSQL_*` / `POSTGRES_*` parts). See [CONFIGURATION.md](CONFIGURATION.md).
@@ -20,15 +20,15 @@ Copy [packaging/mcp.json.example](../packaging/mcp.json.example) and adjust path
 ```json
 {
   "mcpServers": {
-    "mcp-sql-rust": {
+    "strut-stack-sql": {
       "type": "stdio",
       "command": "node",
       "args": [
-        "/home/you/projects/mcp-sql-rust/packaging/cursor-mcp-launcher.mjs",
+        "/home/you/projects/strut-stack-sql/packaging/cursor-mcp-launcher.mjs",
         "${workspaceFolder}"
       ],
       "env": {
-        "MCP_SQL_RUST_BIN": "/home/you/.cargo/bin/mcp-sql-rust",
+        "MCP_SQL_RUST_BIN": "/home/you/.cargo/bin/strut-stack-sql",
         "MCP_SQL_ARGS": "--allow-writes --full-tools"
       }
     }
@@ -41,7 +41,7 @@ Copy [packaging/mcp.json.example](../packaging/mcp.json.example) and adjust path
 1. Cursor passes `${workspaceFolder}` (or cwd fallback) to the launcher.
 2. Launcher walks up from the workspace to find `.env`.
 3. **TCP preflight** (500ms, override `MCP_SQL_PREFLIGHT_MS`): if MySQL/Postgres host is unreachable, prints a clear stderr message and exits before spawning Rust.
-4. Spawns `mcp-sql-rust --workspace <path> --allow-writes --full-tools` with env injected.
+4. Spawns `strut-stack-sql --workspace <path> --allow-writes --full-tools` with env injected.
 5. Rust `chdir`s to workspace, loads `.env`, resolves SQLite relative paths (`sqlite://./data.db`).
 
 ## Lazy connect (default)

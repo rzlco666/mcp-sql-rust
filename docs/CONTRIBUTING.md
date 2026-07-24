@@ -1,8 +1,8 @@
-# Contributing — mcp-sql-rust
+# Contributing — strut-stack-sql
 
 ## Development
 
-1. Fork / clone https://github.com/rzlco666/mcp-sql-rust
+1. Fork / clone https://github.com/rzlco666/strut-stack-sql
 2. Rust 1.88+
 3. **Recommended:** Dev Container or `docker compose up -d` (see [QUICKSTART.md](QUICKSTART.md))
 4. `cp .env.example .env`

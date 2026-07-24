@@ -1,6 +1,6 @@
 # Benchmarks
 
-Reproducible performance comparison of **mcp-sql-rust** against other MCP SQL servers on PostgreSQL.
+Reproducible performance comparison of **strut-stack-sql** against other MCP SQL servers on PostgreSQL.
 
 ## MySQL comparison (v0.5+)
 
@@ -19,7 +19,7 @@ Measured on **WSL2 Ubuntu 24.04** (`LAPTOP-OC7HTPEU`), `docker compose` seed DB,
 
 | Server | Idle RSS (MB) | Load RSS (MB) | Cold start (ms) | p50 tool (ms) | tools/list (bytes) |
 |--------|---------------|---------------|-----------------|---------------|-------------------|
-| **mcp-sql-rust** | **10.4** | **12.8** | **13.5** | 0.88 | 2509 |
+| **strut-stack-sql** | **10.4** | **12.8** | **13.5** | 0.88 | 2509 |
 | server-postgres | 100.4 | 100.4 | 563.6 | 1.48 | 141 |
 | postgres-mysql-mcp-server | 100.9 | 100.9 | 553.3 | 0.32 | 1969 |
 
@@ -41,7 +41,7 @@ Raw JSON: [`scripts/benchmark/benchmark-results.json`](../scripts/benchmark/benc
 
 | Server | Package | Stack |
 |--------|---------|-------|
-| mcp-sql-rust | this repo | Rust |
+| strut-stack-sql | this repo | Rust |
 | server-postgres | `@modelcontextprotocol/server-postgres@0.6.2` | Node/TS |
 | postgres-mysql-mcp-server | `postgres-mysql-mcp-server@1.0.3` | Node/TS |
 
@@ -68,16 +68,16 @@ Requirements: Node.js 20+ (`npx`), Linux recommended for RSS.
 | File | Role |
 |------|------|
 | [`mcp-client.mjs`](../scripts/benchmark/mcp-client.mjs) | NDJSON MCP stdio client |
-| [`mcp-sql-rust.sh`](../scripts/benchmark/mcp-sql-rust.sh) | Single-server smoke |
+| [`strut-stack-sql.sh`](../scripts/benchmark/strut-stack-sql.sh) | Single-server smoke |
 | [`run.sh`](../scripts/benchmark/run.sh) | Full comparison orchestrator |
 | [`versions.lock`](../scripts/benchmark/versions.lock) | Pinned rival versions |
 
 ## Interpreting results
 
 - **RSS** — Rust binary + sqlx pool vs Node `npx` cold start footprint
-- **Cold start** — includes rival package spawn; mcp-sql-rust is a native binary
+- **Cold start** — includes rival package spawn; strut-stack-sql is a native binary
 - **p50** — dominated by Postgres latency on localhost; compare relative overhead cautiously
-- **tools/list** — mcp-sql-rust lists richer schemas (3 tools with full descriptions); byte size is not the only token story
+- **tools/list** — strut-stack-sql lists richer schemas (3 tools with full descriptions); byte size is not the only token story
 
 ## Changelog
 

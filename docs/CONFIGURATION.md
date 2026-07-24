@@ -1,4 +1,4 @@
-# Configuration — mcp-sql-rust
+# Configuration — strut-stack-sql
 
 ## Resolution order
 
@@ -8,7 +8,7 @@
    - `POSTGRES_URL` / `MYSQL_URL` / `SQLITE_URL`
    - `POSTGRES_*` / `PG*` parts
    - `MYSQL_*` parts
-3. `--config mcp-sql-rust.toml` multi-source
+3. `--config strut-stack-sql.toml` multi-source
 4. Error listing searched paths
 
 ## Docker Compose (local dev)
@@ -52,7 +52,7 @@ POSTGRES_DB=app
 
 ## Multi-source TOML
 
-See [`mcp-sql-rust.example.toml`](../mcp-sql-rust.example.toml):
+See [`strut-stack-sql.example.toml`](../strut-stack-sql.example.toml):
 
 ```toml
 default_source = "app"
@@ -72,19 +72,19 @@ Pass `"source": "analytics"` in tool calls.
 ## CLI reference
 
 ```bash
-mcp-sql-rust --version
-mcp-sql-rust                          # stdio, .env, read-only
-mcp-sql-rust --allow-writes
-mcp-sql-rust --allow-ddl
-mcp-sql-rust --full-tools
-mcp-sql-rust --http 127.0.0.1:8080
-mcp-sql-rust --config ./mcp-sql-rust.toml
-mcp-sql-rust --url "$DATABASE_URL"
-mcp-sql-rust --max-rows 50 --max-bytes 32768
-mcp-sql-rust --pool-size 16 --query-timeout 15 --connect-timeout 2
-mcp-sql-rust --batch-concurrency 4 --fail-fast
-mcp-sql-rust --workspace /path/to/project   # chdir + .env walk + SQLite relative paths
-mcp-sql-rust --eager-connect                # connect at startup (default: lazy)
+strut-stack-sql --version
+strut-stack-sql                          # stdio, .env, read-only
+strut-stack-sql --allow-writes
+strut-stack-sql --allow-ddl
+strut-stack-sql --full-tools
+strut-stack-sql --http 127.0.0.1:8080
+strut-stack-sql --config ./strut-stack-sql.toml
+strut-stack-sql --url "$DATABASE_URL"
+strut-stack-sql --max-rows 50 --max-bytes 32768
+strut-stack-sql --pool-size 16 --query-timeout 15 --connect-timeout 2
+strut-stack-sql --batch-concurrency 4 --fail-fast
+strut-stack-sql --workspace /path/to/project   # chdir + .env walk + SQLite relative paths
+strut-stack-sql --eager-connect                # connect at startup (default: lazy)
 ```
 
 ## Lazy connect
@@ -107,7 +107,7 @@ Use `--eager-connect` to ping all sources before serving MCP (previous behavior)
 ## Response format
 
 ```bash
-MCP_SQL_FORMAT=auto|columnar|rows mcp-sql-rust
+MCP_SQL_FORMAT=auto|columnar|rows strut-stack-sql
 ```
 
 Per-query override on `execute_sql`: `"format": "rows"`. `auto` returns row objects when ≤10 rows, else columnar.
@@ -133,7 +133,7 @@ Full install matrix: [INSTALL.md](INSTALL.md)
 {
   "mcpServers": {
     "sql": {
-      "command": "mcp-sql-rust",
+      "command": "strut-stack-sql",
       "args": []
     }
   }
@@ -146,7 +146,7 @@ With writes (local only):
 {
   "mcpServers": {
     "sql": {
-      "command": "mcp-sql-rust",
+      "command": "strut-stack-sql",
       "args": ["--allow-writes"]
     }
   }
@@ -158,7 +158,7 @@ Put secrets in project `.env`, not in `args`.
 ## Logging
 
 ```bash
-MCP_SQL_LOG=debug mcp-sql-rust
+MCP_SQL_LOG=debug strut-stack-sql
 ```
 
 Logs go to **stderr** (stdout is MCP stdio).

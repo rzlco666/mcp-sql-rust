@@ -107,9 +107,10 @@ where
     } else if let Some(f) = n.as_f64() {
         q.bind(f)
     } else if let Some(u) = n.as_u64() {
-        q.bind(i64::try_from(u).map_err(|_| {
-            BindError::Invalid(format!("parameter value out of range: {u}"))
-        })?)
+        q.bind(
+            i64::try_from(u)
+                .map_err(|_| BindError::Invalid(format!("parameter value out of range: {u}")))?,
+        )
     } else {
         return Err(BindError::Invalid("invalid numeric parameter".into()));
     };

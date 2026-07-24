@@ -21,9 +21,6 @@ mod tests {
     #[test]
     fn redacts_mysql_password() {
         let url = "mysql://root:secret@127.0.0.1:3306/mydb";
-        assert_eq!(
-            redact_url(url),
-            "mysql://root:***@127.0.0.1:3306/mydb"
-        );
+        assert_eq!(redact_url(url), "mysql://root:***@127.0.0.1:3306/mydb");
     }
 }

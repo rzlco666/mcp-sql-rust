@@ -1,164 +1,84 @@
 # Installation
 
-All install paths for **mcp-sql-rust**. Pick one channel; they install the same binary.
+All install paths for **strut-stack-sql**. Pick one channel; they install the same binary.
 
 ## Quick pick
 
 | Channel | Best for |
 |---------|----------|
-| [curl install script](#curl-install-script) | Linux/macOS, fastest |
-| [Homebrew](#homebrew) | macOS / Linux with brew |
-| [Docker](#docker-ghcr) | Servers, CI, no local install |
-| [GitHub Releases](#github-releases) | Manual download, air-gapped |
+| [curl install script](#curl-install-script) | Linux/macOS, **recommended** |
+| [Homebrew](#homebrew) | macOS |
+| [Docker](#docker-ghcr) | Servers, CI |
+| [Scoop / winget](#windows) | Windows |
 | [cargo-binstall](#cargo-binstall) | Rust developers |
-| [Scoop / winget](#scoop-windows) | Windows |
-| [Build from source](#build-from-source) | Contributors |
+| [From source](#from-source) | Contributors |
 
 ## curl install script
 
-Auto-detects OS and architecture, verifies `SHA256SUMS`, installs to `~/.local/bin`:
-
 ```bash
-curl -fsSL https://raw.githubusercontent.com/rzlco666/mcp-sql-rust/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/rzlco666/strut-stack-sql/main/install.sh | sh
+strut-stack-sql --version
 ```
 
-Options (pass after `sh -s --`):
+Options:
 
 ```bash
-curl -fsSL .../install.sh | sh -s -- --version 0.4.0 --prefix ~/.local
+curl -fsSL .../install.sh | sh -s -- --version 1.0.0 --prefix ~/.local
 ```
 
-Add to `PATH` if needed:
+Installs `~/.local/bin/strut-stack-sql` and a `mcp-sql-rust` symlink (compat). Add `~/.local/bin` to `PATH` if needed.
 
-```bash
-export PATH="$HOME/.local/bin:$PATH"
-```
+### Release asset names
+
+| Platform | Asset |
+|----------|--------|
+| Linux x64 | `strut-stack-sql-linux-x64.tar.gz` |
+| Linux arm64 | `strut-stack-sql-linux-arm64.tar.gz` |
+| macOS x64 | `strut-stack-sql-macos-x64.tar.gz` |
+| macOS arm64 | `strut-stack-sql-macos-arm64.tar.gz` |
+| Windows x64 | `strut-stack-sql-windows-x64.zip` |
+
+Each archive contains a single `strut-stack-sql` binary. `SHA256SUMS` is published on every release.
 
 ## Homebrew
 
-Tap repo: `github.com/rzlco666/homebrew-tap`
-
 ```bash
-brew install rzlco666/tap/mcp-sql-rust
-```
-
-Formula source lives in this repo at [`packaging/homebrew/mcp-sql-rust.rb`](../packaging/homebrew/mcp-sql-rust.rb). After a release, maintainers run:
-
-```bash
-./scripts/bump-homebrew-formula.sh 0.4.0
-# copy packaging/homebrew/mcp-sql-rust.rb → homebrew-tap/Formula/
+brew install rzlco666/tap/strut-stack-sql
 ```
 
 ## Docker (GHCR)
 
 ```bash
-docker pull ghcr.io/rzlco666/mcp-sql-rust:latest
+docker run --rm -i -e DATABASE_URL=... ghcr.io/rzlco666/strut-stack-sql:latest
 ```
 
-Run with stdio (for MCP clients that support docker):
+## Windows
 
 ```bash
-docker run --rm -i \
-  -e DATABASE_URL="postgresql://user:pass@host.docker.internal:5432/mydb" \
-  ghcr.io/rzlco666/mcp-sql-rust:latest
-```
-
-HTTP mode:
-
-```bash
-docker run --rm -p 8080:8080 \
-  -e DATABASE_URL="postgresql://..." \
-  ghcr.io/rzlco666/mcp-sql-rust:latest \
-  --http 0.0.0.0:8080
-```
-
-## GitHub Releases
-
-Assets per release ([latest](https://github.com/rzlco666/mcp-sql-rust/releases/latest)):
-
-| Platform | Archive |
-|----------|---------|
-| Linux x86_64 | `mcp-sql-rust-x86_64-unknown-linux-gnu.tar.gz` |
-| Linux aarch64 | `mcp-sql-rust-aarch64-unknown-linux-gnu.tar.gz` |
-| macOS x86_64 | `mcp-sql-rust-x86_64-apple-darwin.tar.gz` |
-| macOS arm64 | `mcp-sql-rust-aarch64-apple-darwin.tar.gz` |
-| Windows x86_64 | `mcp-sql-rust-x86_64-pc-windows-msvc.zip` |
-
-Each archive contains a single binary (`mcp-sql-rust` or `mcp-sql-rust.exe`). MCP Registry bundles (`.mcpb`) are also published per platform.
-
-### Verify checksum
-
-```bash
-curl -LO https://github.com/rzlco666/mcp-sql-rust/releases/download/v0.4.0/SHA256SUMS
-curl -LO https://github.com/rzlco666/mcp-sql-rust/releases/download/v0.4.0/mcp-sql-rust-x86_64-unknown-linux-gnu.tar.gz
-sha256sum -c SHA256SUMS --ignore-missing
-```
-
-### Manual install (Linux example)
-
-```bash
-tar -xzf mcp-sql-rust-x86_64-unknown-linux-gnu.tar.gz
-sudo install -m 755 mcp-sql-rust /usr/local/bin/
+scoop install rzlco666/strut-stack-sql
+# or
+winget install rzlco666.strut-stack-sql
 ```
 
 ## cargo-binstall
 
 ```bash
-cargo binstall mcp-sql-rust
+cargo binstall strut-stack-sql
 ```
 
-Metadata is in `Cargo.toml` under `[package.metadata.binstall]`. Pulls the matching `.tar.gz` or `.zip` from GitHub Releases.
-
-## Scoop (Windows)
-
-Manifest: [`packaging/scoop/mcp-sql-rust.json`](../packaging/scoop/mcp-sql-rust.json)
+## From source
 
 ```bash
-scoop bucket add rzlco666 https://github.com/rzlco666/scoop-bucket
-scoop install rzlco666/mcp-sql-rust
-```
-
-Bump after release:
-
-```bash
-./scripts/bump-windows-manifests.sh 0.4.0
-```
-
-## winget (Windows)
-
-Manifest: [`packaging/winget/rzlco666.mcp-sql-rust.yaml`](../packaging/winget/rzlco666.mcp-sql-rust.yaml)
-
-```bash
-winget install rzlco666.mcp-sql-rust
-```
-
-Submit updated manifest to [microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs) after each release.
-
-## MCP Registry
-
-Registry name: `io.github.rzlco666/mcp-sql-rust`
-
-Clients that support the [MCP Registry](https://github.com/modelcontextprotocol/registry) can install the published `.mcpb` bundle. See [MCP_REGISTRY.md](MCP_REGISTRY.md).
-
-## Build from source
-
-Requires Rust 1.88+.
-
-```bash
-git clone https://github.com/rzlco666/mcp-sql-rust.git
-cd mcp-sql-rust
-cargo install --path .
-```
-
-Or:
-
-```bash
-cargo build --release
-./target/release/mcp-sql-rust --help
+git clone https://github.com/rzlco666/strut-stack-sql.git
+cd strut-stack-sql
+cargo install --path . --bins
 ```
 
 ## After install
 
-1. Set `DATABASE_URL` (or use project `.env` — see [CONFIGURATION.md](CONFIGURATION.md))
-2. Configure your MCP client — see [QUICKSTART.md](QUICKSTART.md)
-3. Default mode is **read-only**; use `--allow-writes` / `--allow-ddl` only when needed ([SECURITY.md](SECURITY.md))
+```bash
+strut-stack-sql --version
+# Cursor: see README quick start
+```
+
+Migrating from `mcp-sql-rust`: the v1.0 binary alias `mcp-sql-rust` still works; prefer `strut-stack-sql` in new configs.

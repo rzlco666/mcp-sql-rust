@@ -9,19 +9,20 @@ use std::time::Duration;
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use mcp_sql_rust::config::{AppConfig, ResolvedSource, WriteMode};
-use mcp_sql_rust::db::{describe_table, EngineKind, EnginePool};
-use mcp_sql_rust::guard::validate_and_prepare;
-use mcp_sql_rust::server::build_http_router;
-use mcp_sql_rust::tools::core::{
-    handle_execute_sql, handle_search_objects, BatchQueryItem, ExecuteSqlParams, SearchObjectsParams,
-};
-use mcp_sql_rust::db::ObjectType;
 use rmcp::model::CallToolResult;
 use serde_json::{json, Value};
-use sqlx::sqlite::SqlitePoolOptions;
 use sqlx::mysql::MySqlPoolOptions;
 use sqlx::postgres::PgPoolOptions;
+use sqlx::sqlite::SqlitePoolOptions;
+use strut_stack_sql::config::{AppConfig, ResolvedSource, WriteMode};
+use strut_stack_sql::db::ObjectType;
+use strut_stack_sql::db::{describe_table, EngineKind, EnginePool};
+use strut_stack_sql::guard::validate_and_prepare;
+use strut_stack_sql::server::build_http_router;
+use strut_stack_sql::tools::core::{
+    handle_execute_sql, handle_search_objects, BatchQueryItem, ExecuteSqlParams,
+    SearchObjectsParams,
+};
 use tower::ServiceExt;
 
 fn force_columnar_test_format() {
@@ -96,9 +97,7 @@ async fn seed_users(config: &Arc<AppConfig>) {
     exec_sql_ok(
         config,
         ExecuteSqlParams {
-            sql: Some(
-                "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, note TEXT)".into(),
-            ),
+            sql: Some("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, note TEXT)".into()),
             params: None,
             queries: None,
             page_offset: None,
@@ -467,7 +466,7 @@ async fn types_large_int_and_float() {
         &config,
         ExecuteSqlParams {
             sql: Some("SELECT ?, ? AS f".into()),
-            params: Some(vec![json!(9_007_199_254_740_991_i64), json!(-3.14)]),
+            params: Some(vec![json!(9_007_199_254_740_991_i64), json!(-314.0 / 100.0)]),
             queries: None,
             page_offset: None,
             page_size: None,
@@ -801,8 +800,14 @@ async fn mysql_config() -> Option<AppConfig> {
 #[tokio::test]
 #[ignore = "requires MYSQL_DATABASE_URL (docker compose mysql on :3307)"]
 async fn mysql_show_processlist_allowed() {
-    validate_and_prepare("SHOW PROCESSLIST", &[], EngineKind::Mysql, WriteMode::ReadOnly, 100)
-        .expect("guard allows SHOW PROCESSLIST");
+    validate_and_prepare(
+        "SHOW PROCESSLIST",
+        &[],
+        EngineKind::Mysql,
+        WriteMode::ReadOnly,
+        100,
+    )
+    .expect("guard allows SHOW PROCESSLIST");
     let config = Arc::new(mysql_config().await.expect("mysql dsn"));
     let body = exec_sql_ok(
         &config,
@@ -818,7 +823,7 @@ async fn mysql_show_processlist_allowed() {
     )
     .await;
     assert_eq!(body["ok"], true);
-    assert!(body["data"]["rows"].as_array().unwrap().len() >= 1);
+    assert!(!body["data"]["rows"].as_array().unwrap().is_empty());
 }
 
 #[tokio::test]

@@ -108,6 +108,14 @@ pub fn classify(stmt: &Statement) -> Result<StmtClass, crate::guard::GuardError>
             explain_analyze: false,
         }),
 
+        // Explicit denylist (always SqlClass::Other → enforce denies).
+        Statement::Copy { .. } => Ok(other("COPY")),
+        Statement::Call(_) => Ok(other("CALL")),
+        Statement::AttachDatabase { .. } => Ok(other("ATTACH DATABASE")),
+        Statement::LoadData { .. } => Ok(other("LOAD DATA")),
+        Statement::Execute { .. } => Ok(other("EXECUTE")),
+        Statement::Prepare { .. } => Ok(other("PREPARE")),
+
         other => {
             let dbg = format!("{other:?}");
             let head = dbg
@@ -135,6 +143,14 @@ fn dml(label: &str) -> StmtClass {
 fn ddl(label: &str) -> StmtClass {
     StmtClass {
         class: SqlClass::Ddl,
+        label: label.into(),
+        explain_analyze: false,
+    }
+}
+
+fn other(label: &str) -> StmtClass {
+    StmtClass {
+        class: SqlClass::Other,
         label: label.into(),
         explain_analyze: false,
     }

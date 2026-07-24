@@ -1,4 +1,4 @@
-# MySQL notes — mcp-sql-rust
+# MySQL notes — strut-stack-sql
 
 MySQL support is first-class alongside PostgreSQL and SQLite.
 
@@ -42,7 +42,7 @@ MySQL uses `?` placeholders. PostgreSQL `$N` in SQL text is rewritten when the s
 
 ## Columnar JSON / `COUNT(*)`
 
-MySQL may map small integers to boolean in some drivers. mcp-sql-rust decodes **numeric types before boolean** so `COUNT(*)` returns numbers, not booleans.
+MySQL may map small integers to boolean in some drivers. strut-stack-sql decodes **numeric types before boolean** so `COUNT(*)` returns numbers, not booleans.
 
 ## `analyze_query_performance`
 

@@ -4,12 +4,12 @@
 
 use std::time::Duration;
 
-use mcp_sql_rust::config::WriteMode;
-use mcp_sql_rust::db::{describe_table, execute_query, ExecOptions, EnginePool};
-use mcp_sql_rust::db::EngineKind;
-use mcp_sql_rust::guard::validate_and_prepare;
 use sqlx::mysql::MySqlPoolOptions;
 use sqlx::Row;
+use strut_stack_sql::config::WriteMode;
+use strut_stack_sql::db::EngineKind;
+use strut_stack_sql::db::{describe_table, execute_query, EnginePool, ExecOptions};
+use strut_stack_sql::guard::validate_and_prepare;
 
 async fn mysql_pool() -> Option<EnginePool> {
     let url = std::env::var("MYSQL_DATABASE_URL")
@@ -124,7 +124,10 @@ async fn mysql_describe_table_fw_users_if_present() {
         for idx in indexes {
             let has_uni_col = columns.iter().any(|c| {
                 c.key.as_deref() == Some("UNI")
-                    && idx.columns.iter().any(|ic| ic.eq_ignore_ascii_case(&c.name))
+                    && idx
+                        .columns
+                        .iter()
+                        .any(|ic| ic.eq_ignore_ascii_case(&c.name))
             });
             if has_uni_col {
                 assert!(
@@ -152,7 +155,10 @@ async fn mysql_count_serializes_as_number_not_bool() {
         .await
         .expect("set MYSQL_DATABASE_URL to a mysql:// DSN");
 
-    for sql in ["SELECT COUNT(*) AS c FROM (SELECT 1 AS x) t", "SELECT 0 AS c"] {
+    for sql in [
+        "SELECT COUNT(*) AS c FROM (SELECT 1 AS x) t",
+        "SELECT 0 AS c",
+    ] {
         let result = execute_query(&pool, sql, &[], &exec_opts())
             .await
             .expect("execute")
@@ -169,8 +175,14 @@ async fn mysql_count_serializes_as_number_not_bool() {
 #[tokio::test]
 #[ignore = "requires MYSQL_DATABASE_URL or mysql:// DATABASE_URL"]
 async fn mysql_show_processlist_allowed_and_runs() {
-    validate_and_prepare("SHOW PROCESSLIST", &[], EngineKind::Mysql, WriteMode::ReadOnly, 100)
-        .expect("guard should allow SHOW PROCESSLIST");
+    validate_and_prepare(
+        "SHOW PROCESSLIST",
+        &[],
+        EngineKind::Mysql,
+        WriteMode::ReadOnly,
+        100,
+    )
+    .expect("guard should allow SHOW PROCESSLIST");
 
     let pool = mysql_pool()
         .await
@@ -231,8 +243,16 @@ async fn mysql_information_schema_aggregates_serialize_as_numbers() {
         .expect("data");
 
     for (i, row) in top.rows.iter().enumerate() {
-        assert!(row[1].is_number() || row[1].is_null(), "row {i} table_rows: {}", row[1]);
-        assert!(row[2].is_number() || row[2].is_null(), "row {i} size_mb: {}", row[2]);
+        assert!(
+            row[1].is_number() || row[1].is_null(),
+            "row {i} table_rows: {}",
+            row[1]
+        );
+        assert!(
+            row[2].is_number() || row[2].is_null(),
+            "row {i} size_mb: {}",
+            row[2]
+        );
     }
 }
 
@@ -243,11 +263,16 @@ async fn mysql_parameterized_select_binds_value() {
         .await
         .expect("set MYSQL_DATABASE_URL to a mysql:// DSN");
 
-    let result = execute_query(&pool, "SELECT ? AS v", &[serde_json::json!(42)], &exec_opts())
-        .await
-        .expect("execute")
-        .data
-        .expect("data");
+    let result = execute_query(
+        &pool,
+        "SELECT ? AS v",
+        &[serde_json::json!(42)],
+        &exec_opts(),
+    )
+    .await
+    .expect("execute")
+    .data
+    .expect("data");
     assert_eq!(result.rows[0][0], serde_json::json!(42));
 }
 

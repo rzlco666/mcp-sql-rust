@@ -247,10 +247,7 @@ pub async fn handle_schema_mutate(
     let source = config
         .source(params.source.as_deref())
         .map_err(|e| tool_error(e.to_string()))?;
-    let pool = source
-        .pool()
-        .await
-        .map_err(|e| tool_error(e.to_string()))?;
+    let pool = source.pool().await.map_err(|e| tool_error(e.to_string()))?;
     let engine = pool.engine();
 
     let sql = build_ddl_sql(&params, engine)?;
@@ -275,10 +272,7 @@ pub async fn handle_schema_mutate(
         });
     }
 
-    let rows_affected = result
-        .data
-        .as_ref()
-        .and_then(|d| d.meta.rows_affected);
+    let rows_affected = result.data.as_ref().and_then(|d| d.meta.rows_affected);
 
     json_result(&SchemaMutateResult {
         ok: true,
@@ -378,9 +372,7 @@ fn build_ddl_sql(
 
 fn require_confirm(params: &SchemaMutateParams) -> Result<(), rmcp::ErrorData> {
     if params.confirm != Some(true) {
-        return Err(tool_error(
-            "destructive action requires confirm: true",
-        ));
+        return Err(tool_error("destructive action requires confirm: true"));
     }
     Ok(())
 }

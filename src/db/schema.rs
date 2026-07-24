@@ -417,10 +417,7 @@ pub async fn describe_table(
     let engine = pool.engine();
 
     let (schema, table_name) = match engine {
-        EngineKind::Postgres => (
-            schema.unwrap_or("public").to_string(),
-            table.to_string(),
-        ),
+        EngineKind::Postgres => (schema.unwrap_or("public").to_string(), table.to_string()),
         EngineKind::Mysql => {
             let pool = pool.mysql().expect("mysql");
             let (schema_from_table, table_only) = split_mysql_table(table);
@@ -465,8 +462,7 @@ pub async fn describe_table(
             let pool = pool.mysql().expect("mysql");
             let mut columns = mysql_columns_from_show(pool, &schema, &table_name).await?;
             if columns.is_empty() {
-                columns =
-                    mysql_columns_from_information_schema(pool, &schema, &table_name).await?;
+                columns = mysql_columns_from_information_schema(pool, &schema, &table_name).await?;
             }
             columns
         }
@@ -607,8 +603,7 @@ pub async fn list_indexes(
 
             // Group by index name
             use std::collections::BTreeMap;
-            let mut map: BTreeMap<String, (Vec<String>, bool, Option<String>)> =
-                BTreeMap::new();
+            let mut map: BTreeMap<String, (Vec<String>, bool, Option<String>)> = BTreeMap::new();
             for row in &rows {
                 if matches!(scope, MysqlSchemaScope::All) && table.is_none() {
                     let sch: String = row.try_get(0).ok().unwrap_or_default();
@@ -616,15 +611,19 @@ pub async fn list_indexes(
                     let col: String = row.try_get(2).ok().unwrap_or_default();
                     let non_unique: i32 = row.try_get(3).ok().unwrap_or(1);
                     let key = format!("{sch}.{name}");
-                    let entry = map.entry(key).or_insert((vec![], non_unique == 0, Some(sch)));
+                    let entry = map
+                        .entry(key)
+                        .or_insert((vec![], non_unique == 0, Some(sch)));
                     entry.0.push(col);
                 } else {
                     let name: String = row.try_get(0).ok().unwrap_or_default();
                     let col: String = row.try_get(1).ok().unwrap_or_default();
                     let non_unique: i32 = row.try_get(2).ok().unwrap_or(1);
-                    let entry = map
-                        .entry(name.clone())
-                        .or_insert((vec![], non_unique == 0, schema.map(str::to_string)));
+                    let entry = map.entry(name.clone()).or_insert((
+                        vec![],
+                        non_unique == 0,
+                        schema.map(str::to_string),
+                    ));
                     entry.0.push(col);
                 }
             }
@@ -877,8 +876,7 @@ fn split_mysql_table(table: &str) -> (Option<String>, &str) {
 }
 
 fn parse_mysql_is_nullable_row(row: &MySqlRow, index: usize) -> bool {
-    mysql_decode_text_by_index(row, index)
-        .is_some_and(|s| parse_is_nullable(&s))
+    mysql_decode_text_by_index(row, index).is_some_and(|s| parse_is_nullable(&s))
 }
 
 fn column_info_from_mysql_column_row(r: &MySqlRow) -> Option<ColumnInfo> {
@@ -955,7 +953,10 @@ fn map_mysql_column_rows_to_column_info(rows: &[MySqlRow], context: &str) -> Vec
 fn column_info_from_pg_info_schema_row(r: &PgRow) -> Option<ColumnInfo> {
     let name: String = r.try_get(0).ok()?;
     let data_type: String = r.try_get(1).ok()?;
-    let nullable = r.try_get::<String, _>(2).ok().is_some_and(|s| parse_is_nullable(&s));
+    let nullable = r
+        .try_get::<String, _>(2)
+        .ok()
+        .is_some_and(|s| parse_is_nullable(&s));
     Some(ColumnInfo {
         name,
         data_type,
@@ -1020,12 +1021,12 @@ async fn mysql_columns_from_show(
     let rows = sqlx::query(&sql).fetch_all(pool).await?;
     let mut out = Vec::with_capacity(rows.len());
     for r in &rows {
-        let name = mysql_decode_text_by_name(r, "Field")
-            .or_else(|| mysql_decode_text_by_index(r, 0));
-        let data_type = mysql_decode_text_by_name(r, "Type")
-            .or_else(|| mysql_decode_text_by_index(r, 1));
-        let null_raw = mysql_decode_text_by_name(r, "Null")
-            .or_else(|| mysql_decode_text_by_index(r, 2));
+        let name =
+            mysql_decode_text_by_name(r, "Field").or_else(|| mysql_decode_text_by_index(r, 0));
+        let data_type =
+            mysql_decode_text_by_name(r, "Type").or_else(|| mysql_decode_text_by_index(r, 1));
+        let null_raw =
+            mysql_decode_text_by_name(r, "Null").or_else(|| mysql_decode_text_by_index(r, 2));
         match (name, data_type, null_raw) {
             (Some(name), Some(data_type), Some(null_raw)) => {
                 out.push(ColumnInfo {
@@ -1110,15 +1111,14 @@ pub async fn list_foreign_keys(
         EngineKind::Mysql => {
             let pool = pool.mysql().expect("mysql");
             let scope = resolve_mysql_schema(pool, schema, connection_url).await?;
-            let schema_name = match scope {
-                MysqlSchemaScope::One(name) => name,
-                MysqlSchemaScope::All => {
-                    return Err(sqlx::Error::Configuration(
+            let schema_name =
+                match scope {
+                    MysqlSchemaScope::One(name) => name,
+                    MysqlSchemaScope::All => return Err(sqlx::Error::Configuration(
                         "list_foreign_keys requires schema on MySQL (or omit for current database)"
                             .into(),
-                    ))
-                }
-            };
+                    )),
+                };
             let rows = if let Some(table) = table {
                 sqlx::query(
                     "SELECT kcu.CONSTRAINT_NAME, kcu.TABLE_NAME, kcu.COLUMN_NAME, \
@@ -1159,7 +1159,10 @@ pub async fn list_foreign_keys(
             let table_name = table.ok_or_else(|| {
                 sqlx::Error::Configuration("list_foreign_keys on SQLite requires table".into())
             })?;
-            let pragma = format!("PRAGMA foreign_key_list({})", sqlite_quote_literal(table_name));
+            let pragma = format!(
+                "PRAGMA foreign_key_list({})",
+                sqlite_quote_literal(table_name)
+            );
             let rows = sqlx::query(&pragma).fetch_all(pool).await?;
             Ok(rows
                 .iter()

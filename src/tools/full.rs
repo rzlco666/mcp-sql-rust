@@ -83,10 +83,7 @@ pub async fn handle_list_schemas(
     let source = config
         .source(params.source.as_deref())
         .map_err(|e| tool_error(e.to_string()))?;
-    let pool = source
-        .pool()
-        .await
-        .map_err(|e| tool_error(e.to_string()))?;
+    let pool = source.pool().await.map_err(|e| tool_error(e.to_string()))?;
     let objects = list_schemas(&pool, None)
         .await
         .map_err(|e| tool_error(e.to_string()))?;
@@ -100,10 +97,7 @@ pub async fn handle_list_tables(
     let source = config
         .source(params.source.as_deref())
         .map_err(|e| tool_error(e.to_string()))?;
-    let pool = source
-        .pool()
-        .await
-        .map_err(|e| tool_error(e.to_string()))?;
+    let pool = source.pool().await.map_err(|e| tool_error(e.to_string()))?;
     let offset = params.offset.unwrap_or(0);
     let limit = params.limit.unwrap_or(50).min(200);
     let mut objects = list_tables(
@@ -136,10 +130,7 @@ pub async fn handle_describe_table(
     let source = config
         .source(params.source.as_deref())
         .map_err(|e| tool_error(e.to_string()))?;
-    let pool = source
-        .pool()
-        .await
-        .map_err(|e| tool_error(e.to_string()))?;
+    let pool = source.pool().await.map_err(|e| tool_error(e.to_string()))?;
     let object = describe_table(
         &pool,
         Some(&source.url),
@@ -158,10 +149,7 @@ pub async fn handle_list_indexes(
     let source = config
         .source(params.source.as_deref())
         .map_err(|e| tool_error(e.to_string()))?;
-    let pool = source
-        .pool()
-        .await
-        .map_err(|e| tool_error(e.to_string()))?;
+    let pool = source.pool().await.map_err(|e| tool_error(e.to_string()))?;
     let objects = list_indexes(
         &pool,
         Some(&source.url),
@@ -191,10 +179,7 @@ pub async fn handle_list_foreign_keys(
     let source = config
         .source(params.source.as_deref())
         .map_err(|e| tool_error(e.to_string()))?;
-    let pool = source
-        .pool()
-        .await
-        .map_err(|e| tool_error(e.to_string()))?;
+    let pool = source.pool().await.map_err(|e| tool_error(e.to_string()))?;
     let fks = list_foreign_keys(
         &pool,
         Some(&source.url),

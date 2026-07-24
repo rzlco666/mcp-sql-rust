@@ -1,4 +1,4 @@
-# Test Report — mcp-sql-rust v0.4.0
+# Test Report — strut-stack-sql v0.4.0
 
 Structured summary of verification for v0.4.0 production readiness. Automated suites live in `cargo test`; this document captures scope, CI behavior, and distribution audit.
 

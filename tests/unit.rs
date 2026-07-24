@@ -1,9 +1,9 @@
 #[cfg(test)]
 mod guard_tests {
-    use mcp_sql_rust::config::WriteMode;
-    use mcp_sql_rust::db::EngineKind;
-    use mcp_sql_rust::guard::validate_and_prepare;
     use serde_json::json;
+    use strut_stack_sql::config::WriteMode;
+    use strut_stack_sql::db::EngineKind;
+    use strut_stack_sql::guard::validate_and_prepare;
 
     #[test]
     fn drop_blocked_without_db() {
@@ -20,9 +20,14 @@ mod guard_tests {
 
     #[test]
     fn select_gets_limit() {
-        let p =
-            validate_and_prepare("SELECT 1", &[], EngineKind::Postgres, WriteMode::ReadOnly, 100)
-                .unwrap();
+        let p = validate_and_prepare(
+            "SELECT 1",
+            &[],
+            EngineKind::Postgres,
+            WriteMode::ReadOnly,
+            100,
+        )
+        .unwrap();
         assert!(p.sql.contains("LIMIT 100"));
     }
 
@@ -95,7 +100,7 @@ mod guard_tests {
 
 #[cfg(test)]
 mod execute_params_tests {
-    use mcp_sql_rust::tools::core::{BatchQueryItem, ExecuteSqlParams};
+    use strut_stack_sql::tools::core::{BatchQueryItem, ExecuteSqlParams};
 
     #[test]
     fn batch_deserializes_legacy_strings() {
@@ -126,8 +131,8 @@ mod execute_params_tests {
 
 #[cfg(test)]
 mod format_tests {
-    use mcp_sql_rust::format::{truncate_to_bytes, ColumnarMeta, ColumnarResult};
     use serde_json::json;
+    use strut_stack_sql::format::{truncate_to_bytes, ColumnarMeta, ColumnarResult};
 
     #[test]
     fn truncates_large_payload() {
@@ -157,7 +162,7 @@ mod format_tests {
 
 #[cfg(test)]
 mod config_tests {
-    use mcp_sql_rust::config::{detect_engine, WriteMode};
+    use strut_stack_sql::config::{detect_engine, WriteMode};
 
     #[test]
     fn write_mode_tiers() {
@@ -170,7 +175,7 @@ mod config_tests {
     fn detects_postgres_url() {
         assert_eq!(
             detect_engine(None, "postgresql://localhost/db").unwrap(),
-            mcp_sql_rust::db::EngineKind::Postgres
+            strut_stack_sql::db::EngineKind::Postgres
         );
     }
 }

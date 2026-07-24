@@ -5,12 +5,14 @@ use serde_json::Value;
 
 pub const AUTO_ROW_THRESHOLD: usize = 10;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default, schemars::JsonSchema)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default, schemars::JsonSchema,
+)]
 #[serde(rename_all = "lowercase")]
 pub enum ResultFormat {
     #[default]
-    Auto,
     Columnar,
+    Auto,
     Rows,
 }
 
@@ -24,9 +26,8 @@ pub fn resolve_result_format(override_fmt: Option<ResultFormat>) -> ResultFormat
         .as_str()
     {
         "rows" => ResultFormat::Rows,
-        "columnar" => ResultFormat::Columnar,
         "auto" => ResultFormat::Auto,
-        _ => ResultFormat::Auto,
+        _ => ResultFormat::Columnar,
     }
 }
 
@@ -37,15 +38,11 @@ pub struct RowObjectResult {
 }
 
 pub fn format_columnar(format: ResultFormat, columnar: ColumnarResult) -> serde_json::Value {
+    // Default path is always columnar (token-efficient). Rows/Auto only when requested.
     let effective = match format {
-        ResultFormat::Auto => {
-            if columnar.rows.len() <= AUTO_ROW_THRESHOLD {
-                ResultFormat::Rows
-            } else {
-                ResultFormat::Columnar
-            }
-        }
-        other => other,
+        ResultFormat::Rows => ResultFormat::Rows,
+        ResultFormat::Auto if columnar.rows.len() <= AUTO_ROW_THRESHOLD => ResultFormat::Rows,
+        _ => ResultFormat::Columnar,
     };
     match effective {
         ResultFormat::Columnar => serde_json::to_value(&columnar).unwrap_or(Value::Null),
@@ -56,10 +53,7 @@ pub fn format_columnar(format: ResultFormat, columnar: ColumnarResult) -> serde_
                 .map(|row| {
                     let mut map = HashMap::new();
                     for (i, col) in columnar.cols.iter().enumerate() {
-                        map.insert(
-                            col.clone(),
-                            row.get(i).cloned().unwrap_or(Value::Null),
-                        );
+                        map.insert(col.clone(), row.get(i).cloned().unwrap_or(Value::Null));
                     }
                     map
                 })
